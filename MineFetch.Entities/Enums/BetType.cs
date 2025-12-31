@@ -15,6 +15,8 @@ public enum BetType
     Odd = 3,
     
     /// <summary>双 (2,4,6)</summary>
+    Even = 4,
+
     /// <summary>大单 (5)</summary>
     BigOdd = 5,
     
