@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using MineFetch.Api.Services;
+using System.Text.Json;
 using Telegram.Bot.Types;
 
 namespace MineFetch.Api.Controllers;
@@ -24,13 +25,41 @@ public class WebhookController : ControllerBase
     /// Telegram Bot Webhook 入口
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> Post([FromBody] Update update, CancellationToken cancellationToken)
+    public async Task<IActionResult> Post([FromBody] JsonDocument json, CancellationToken cancellationToken)
     {
-        _logger.LogDebug("收到 Webhook 更新: {UpdateId}", update.Id);
-        
-        await _botService.HandleUpdateAsync(update, cancellationToken);
-        
-        return Ok();
+        try
+        {
+            // 先记录原始 JSON
+            var rawJson = json.RootElement.GetRawText();
+            _logger.LogInformation("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
+            
+            // 手动反序列化
+            var update = JsonSerializer.Deserialize<Update>(rawJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+            
+            if (update == null)
+            {
+                _logger.LogWarning("Webhook 更新反序列化为 null");
+                return Ok();
+            }
+            
+            _logger.LogInformation("Webhook 更新解析成功: UpdateId={UpdateId}, Type={Type}", 
+                update.Id, 
+                update.Type);
+            
+            await _botService.HandleUpdateAsync(update, cancellationToken);
+            
+            _logger.LogDebug("Webhook 更新处理完成: {UpdateId}", update.Id);
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理 Webhook 更新时发生异常");
+            // 返回 200 避免 Telegram 重试
+            return Ok();
+        }
     }
 
     /// <summary>
@@ -42,3 +71,4 @@ public class WebhookController : ControllerBase
         return Ok(new { status = "healthy", timestamp = DateTime.UtcNow });
     }
 }
+
