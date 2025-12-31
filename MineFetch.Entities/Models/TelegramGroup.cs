@@ -16,6 +16,11 @@ public class TelegramGroup
     public string Title { get; set; } = string.Empty;
 
     /// <summary>
+    /// 群组用户名（用于生成链接，如 @baolu64 中的 baolu64）
+    /// </summary>
+    public string? Username { get; set; }
+
+    /// <summary>
     /// 是否启用采集
     /// </summary>
     public bool IsActive { get; set; } = true;
@@ -31,7 +36,7 @@ public class TelegramGroup
     public DateTime? UpdatedAt { get; set; }
 
     /// <summary>
-    /// 该群组的开奖记录
+    ///该群组的开奖记录
     /// </summary>
     public virtual ICollection<LotteryResult> LotteryResults { get; set; } = new List<LotteryResult>();
 

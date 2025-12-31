@@ -59,10 +59,15 @@ public class RuleEngine
             return;
         }
 
-        // 获取群名称
+        // 获取群信息
         var group = await _dbContext.TelegramGroups
             .FirstOrDefaultAsync(g => g.Id == result.GroupId, cancellationToken);
-        var groupName = group?.Title ?? $"群组 {result.GroupId}";
+        
+        if (group == null)
+        {
+            _logger.LogWarning("群组不存在: {GroupId}", result.GroupId);
+            return;
+        }
 
         // 获取所有启用的用户设置（全局监控）
         var settings = await _dbContext.UserSettings
@@ -86,7 +91,7 @@ public class RuleEngine
             if (chatId == 0) continue;
 
             // 检测所有玩法（使用统一阈值）
-            var triggered = CheckAllPlayTypes(setting.Threshold, stats, result, groupName, chatId);
+            var triggered = CheckAllPlayTypes(setting.Threshold, stats, result, group, recentResults, chatId);
             
             if (triggered != null && triggered.TriggeredBetTypes.Any())
             {
@@ -102,7 +107,8 @@ public class RuleEngine
         int threshold,
         Dictionary<(RuleType, BetType), int> stats,
         LotteryResult result,
-        string groupName,
+        TelegramGroup group,
+        List<LotteryResult> recentResults,
         long chatId)
     {
         var allBetTypes = new[] 
@@ -127,19 +133,35 @@ public class RuleEngine
         if (!triggered.Any())
             return null;
 
+        // 获取最大连续期数
+        var maxCount = triggered.Max(t => t.Count);
+
+        // 提取最近的开奖号码
+        var recentNumbers = recentResults
+            .OrderByDescending(r => r.CollectedAt)
+            .Take(maxCount)
+            .Select(r => r.DiceNumber)
+            .Reverse()
+            .ToList();
+
         _logger.LogInformation(
             "触发推送: 群组={GroupName}, 阈值={Threshold}, 触发数={Count}",
-            groupName, threshold, triggered.Count);
+            group.Title, threshold, triggered.Count);
 
         return new PushMessageDto
         {
             ChatId = chatId,
-            GroupName = groupName,
+            GroupId = result.GroupId,
+            GroupName = group.Title ?? $"群组 {result.GroupId}",
+            GroupUsername = group.Username,
+            MessageId = result.MessageId,
             PeriodId = result.PeriodId,
             DiceNumber = result.DiceNumber,
             RuleType = RuleType.Consecutive,
             RuleCategory = "All",
-            TriggeredBetTypes = triggered
+            TriggeredBetTypes = triggered,
+            RecentNumbers = recentNumbers,
+            CollectedAt = result.CollectedAt
         };
     }
 

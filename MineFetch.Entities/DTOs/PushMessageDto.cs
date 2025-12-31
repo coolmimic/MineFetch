@@ -18,6 +18,21 @@ public class PushMessageDto
     public string GroupName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 群组 ID
+    /// </summary>
+    public long GroupId { get; set; }
+
+    /// <summary>
+    /// 群组用户名（用于生成链接）
+    /// </summary>
+    public string? GroupUsername { get; set; }
+
+    /// <summary>
+    /// 消息 ID（用于生成链接）
+    /// </summary>
+    public long MessageId { get; set; }
+
+    /// <summary>
     /// 期号
     /// </summary>
     public string PeriodId { get; set; } = string.Empty;
@@ -49,52 +64,77 @@ public class PushMessageDto
     public List<(BetType Type, int Count)> TriggeredBetTypes { get; set; } = new();
 
     /// <summary>
+    /// 最近的开奖记录（用于显示）
+    /// </summary>
+    public List<int> RecentNumbers { get; set; } = new();
+
+    /// <summary>
     /// 连续次数（单个触发条件时使用）
     /// </summary>
     public int Count { get; set; }
+
+    /// <summary>
+    /// 采集时间
+    /// </summary>
+    public DateTime CollectedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// 生成推送消息文本
     /// </summary>
     public string ToMessageText()
     {
-        var sizeText = DiceNumber >= 4 ? "大" : "小";
-        var parityText = DiceNumber % 2 == 1 ? "单" : "双";
-        var ruleText = RuleType == RuleType.Missing ? "已遗漏" : "已连开";
-
-        var categoryDesc = RuleCategory switch
-        {
-            "Basic" => "大小单双",
-            "Combo" => "组合",
-            "Dragon" => "花龙",
-            _ => RuleCategory
-        };
-
-        // 如果有多个触发条件，列出所有
-        string triggerDetails;
+        var timeStr = CollectedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss");
+        
+        // 确定类型描述
+        string typeDesc = "长龙";
         if (TriggeredBetTypes.Any())
         {
-            var triggers = TriggeredBetTypes
-                .Select(t => $"{t.Type.ToChineseName()} ({t.Count}期)")
-                .ToList();
-            triggerDetails = $"⚠️ 【{categoryDesc}】{ruleText}：\n   " + string.Join("\n   ", triggers);
+            var maxCount = TriggeredBetTypes.Max(t => t.Count);
+            var mainType = TriggeredBetTypes.First(t => t.Count == maxCount);
+            
+            // 判断是否是跳龙
+            if (mainType.Type == BetType.Dragon)
+            {
+                typeDesc = "花龙";
+            }
+            else
+            {
+                typeDesc = mainType.Type.ToChineseName();
+            }
         }
-        else
+
+        // 连续期数
+        var maxPeriods = TriggeredBetTypes.Any() ? TriggeredBetTypes.Max(t => t.Count) : Count;
+
+        // 最近记录
+        var recentStr = RecentNumbers.Any() 
+            ? string.Join(" ", RecentNumbers.Take(maxPeriods).Select(n => n.ToString()))
+            : "";
+
+        // 生成群链接
+        var groupLink = "";
+        if (!string.IsNullOrEmpty(GroupUsername) && MessageId > 0)
         {
-            // 兼容旧格式
-#pragma warning disable CS0618
-            triggerDetails = $"⚠️ 【{BetType.ToChineseName()}】{ruleText} {Count} 期！";
-#pragma warning restore CS0618
+            groupLink = $"\n链接：https://t.me/{GroupUsername}/{MessageId}";
+        }
+
+        // 触发详情
+        var triggerDetails = "";
+        if (TriggeredBetTypes.Any())
+        {
+            var details = TriggeredBetTypes
+                .Select(t => $"{t.Type.ToChineseName()}：{t.Count} 把")
+                .ToList();
+            triggerDetails = "\n\n触发详情：\n" + string.Join("\n", details);
         }
 
         return $"""
-            🎯 扫雷提醒
-
-            群组: {GroupName}
-            期号: {PeriodId}
-
-            {triggerDetails}
-            当前结果: {DiceNumber} ({sizeText}/{parityText})
+            【好路提醒】
+            时间：{timeStr}
+            群组：{GroupName}
+            类型：{typeDesc}
+            连续：{maxPeriods} 把
+            最近{maxPeriods}把：{recentStr}{groupLink}{triggerDetails}
             """;
     }
 }
