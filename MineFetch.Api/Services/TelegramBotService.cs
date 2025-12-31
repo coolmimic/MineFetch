@@ -261,53 +261,21 @@ public class TelegramBotService
             {
                 await HandleHelpAsync(chatId, cancellationToken);
             }
-            // 步骤 1: 根据大类显示具体玩法
+            // 步骤 1: 选择玩法组 -> 直接进入 (选择期数)
             else if (data.StartsWith("cat_"))
             {
                 var category = data.Split('_')[1];
-
-                if (category == "Dragon")
-                {
-                    // 花龙特殊处理：直接当做选择了 Dragon 玩法，跳到选期数
-                    data = "step1_Dragon";
-                    goto JumpToStep3;
-                }
-
-                InlineKeyboardMarkup keyboard;
-                string text;
-
-                if (category == "Basic")
-                {
-                    text = "🔘 *请选择具体玩法*";
-                    keyboard = new InlineKeyboardMarkup(new[]
-                    {
-                        new[] { InlineKeyboardButton.WithCallbackData("🔴 大", "step1_Big"), InlineKeyboardButton.WithCallbackData("🔵 小", "step1_Small") },
-                        new[] { InlineKeyboardButton.WithCallbackData("🟢 单", "step1_Odd"), InlineKeyboardButton.WithCallbackData("🟡 双", "step1_Even") },
-                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
-                    });
-                }
-                else // Combo
-                {
-                    text = "🧩 *请选择组合玩法*";
-                    keyboard = new InlineKeyboardMarkup(new[]
-                    {
-                        new[] { InlineKeyboardButton.WithCallbackData("大单", "step1_BigOdd"), InlineKeyboardButton.WithCallbackData("大双", "step1_BigEven") },
-                        new[] { InlineKeyboardButton.WithCallbackData("小单", "step1_SmallOdd"), InlineKeyboardButton.WithCallbackData("小双", "step1_SmallEven") },
-                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
-                    });
-                }
-
-                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: cancellationToken);
-            }
-            
-            JumpToStep3:
-            // 步骤 2: 选择玩法 -> 直接进入 (选择期数) [跳过选规则类型，默认连开]
-            if (data.StartsWith("step1_"))
-            {
-                var betType = data.Split('_')[1];
                 var ruleType = "Consecutive"; // 默认规则类型：连开
-                var prefix = $"step3_{betType}_{ruleType}_";
+                var prefix = $"step3_{category}_{ruleType}_";
+
+                // 根据不同分类显示不同的标题，虽然期数选择是一样的
+                string title = category switch
+                {
+                    "Basic" => "� 大小单双玩法",
+                    "Combo" => "🧩 组合玩法",
+                    "Dragon" => "� 花龙玩法",
+                    _ => "未知玩法"
+                };
 
                 var keyboard = new InlineKeyboardMarkup(new[]
                 {
@@ -318,7 +286,7 @@ public class TelegramBotService
                 });
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    $"已选择：{GetBetTypeName(betType)}\n\n⏱️ *请选择触发期数 (默认连开)*",
+                    $"已选择：{title}\n\n⏱️ *请选择触发期数*",
                     parseMode: ParseMode.Markdown,
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
@@ -327,15 +295,15 @@ public class TelegramBotService
             else if (data.StartsWith("step3_"))
             {
                 var parts = data.Split('_');
-                var betTypeStr = parts[1];
+                var category = parts[1]; // 这里保存的是 category (Basic, Combo, Dragon)
                 var ruleTypeStr = parts[2];
                 var valStr = parts[3];
 
                 if (valStr == "custom")
                 {
                     await _botClient.SendMessage(chatId, 
-                        $"请输入自定义期数（格式：`/add {betTypeStr} {ruleTypeStr} 数字`）\n" +
-                        $"例如：`/add {betTypeStr} {ruleTypeStr} 12`",
+                        $"请输入自定义期数（格式：`/add {category} {ruleTypeStr} 数字`）\n" +
+                        $"例如：`/add {category} {ruleTypeStr} 12`",
                         parseMode: ParseMode.Markdown,
                         cancellationToken: cancellationToken);
                     return; 
@@ -343,12 +311,29 @@ public class TelegramBotService
 
                 if (int.TryParse(valStr, out var threshold))
                 {
-                    await SaveRuleAsync(userId, chatId, betTypeStr, ruleTypeStr, threshold, cancellationToken);
-                    
+                    // 根据 category 展开需要保存的 BetTypes
+                    var betTypes = GetBetTypesByCategory(category);
+                    int count = 0;
+
+                    foreach (var betType in betTypes)
+                    {
+                        await SaveRuleAsync(userId, chatId, betType, ruleTypeStr, threshold, cancellationToken);
+                        count++;
+                    }
+
                     // 用确认消息替换原消息
+                    string catName = category switch
+                    {
+                        "Basic" => "大小单双",
+                        "Combo" => "组合",
+                        "Dragon" => "花龙",
+                        _ => category
+                    };
+
                     await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
                         $"✅ *规则添加成功！*\n\n" +
-                        $"玩法：{GetBetTypeName(betTypeStr)}\n" +
+                        $"监控：所有群\n" +
+                        $"玩法：{catName} ({count}个监控项)\n" +
                         $"类型：{GetRuleTypeName(ruleTypeStr)}\n" +
                         $"阈值：{threshold} 期",
                         parseMode: ParseMode.Markdown,
@@ -363,6 +348,17 @@ public class TelegramBotService
         }
     }
 
+    private List<string> GetBetTypesByCategory(string category)
+    {
+        return category switch
+        {
+            "Basic" => new List<string> { "Big", "Small", "Odd", "Even" },
+            "Combo" => new List<string> { "BigOdd", "BigEven", "SmallOdd", "SmallEven" },
+            "Dragon" => new List<string> { "Dragon" },
+            _ => new List<string> { category } // Fallback
+        };
+    }
+
     private async Task SaveRuleAsync(long userId, long chatId, string betTypeStr, string ruleTypeStr, int threshold, CancellationToken cancellationToken)
     {
         var betType = Enum.Parse<BetType>(betTypeStr);
@@ -375,11 +371,7 @@ public class TelegramBotService
                            s.RuleType == ruleType && s.BetType == betType && s.Threshold == threshold, 
                       cancellationToken);
 
-        if (exists)
-        {
-            await _botClient.SendMessage(chatId, "⚠️ 该规则已存在，无需重复添加", cancellationToken: cancellationToken);
-            return;
-        }
+        if (exists) return; // 静默跳过重复的
 
         var setting = new UserSetting
         {
