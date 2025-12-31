@@ -29,6 +29,20 @@ public class TelegramBotService
         _dbContext = dbContext;
     }
 
+    /// <summary>
+    /// 设置机器人命令菜单
+    /// </summary>
+    public async Task SetCommandsAsync(CancellationToken cancellationToken = default)
+    {
+        var commands = new[]
+        {
+            new BotCommand { Command = "start", Description = "云顶互娱 - 扫雷长龙监控" }
+        };
+
+        await _botClient.SetMyCommands(commands, cancellationToken: cancellationToken);
+        _logger.LogInformation("✅ 机器人命令菜单已更新");
+    }
+
     public async Task HandleUpdateAsync(Update update, CancellationToken cancellationToken)
     {
         try

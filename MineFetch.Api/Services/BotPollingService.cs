@@ -30,6 +30,13 @@ public class BotPollingService : BackgroundService
     {
         _logger.LogInformation("🤖 Bot 轮询服务启动...");
 
+        // 设置机器人命令菜单
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var botService = scope.ServiceProvider.GetRequiredService<TelegramBotService>();
+            await botService.SetCommandsAsync(stoppingToken);
+        }
+
         var receiverOptions = new ReceiverOptions
         {
             AllowedUpdates = new[] { UpdateType.Message, UpdateType.CallbackQuery }
