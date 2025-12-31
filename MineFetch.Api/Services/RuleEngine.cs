@@ -64,50 +64,83 @@ public class RuleEngine
             .FirstOrDefaultAsync(g => g.Id == result.GroupId, cancellationToken);
         var groupName = group?.Title ?? $"群组 {result.GroupId}";
 
-        // 获取订阅该群组的所有用户设置（包括全局规则 GroupId = null）
+        // 获取所有启用的用户设置（全局监控）
         var settings = await _dbContext.UserSettings
             .Include(s => s.User)
-            .Include(s => s.Group)
-            .Where(s => (s.GroupId == result.GroupId || s.GroupId == null) && s.IsEnabled)
+            .Where(s => s.GroupId == null && s.IsEnabled)
             .ToListAsync(cancellationToken);
 
         if (!settings.Any())
         {
-            _logger.LogDebug("没有用户订阅该群组: {GroupId}", result.GroupId);
+            _logger.LogDebug("没有用户启用监控");
             return;
         }
 
         // 计算各类型的统计数据
         var stats = CalculateStats(recentResults);
 
-        // 按用户分组检测规则
-        var userGroups = settings.GroupBy(s => s.UserId);
-
-        foreach (var userGroup in userGroups)
+        // 为每个用户检测所有玩法
+        foreach (var setting in settings)
         {
-            var userId = userGroup.Key;
-            var userSettings = userGroup.ToList();
-            var chatId = userSettings.First().User?.ChatId ?? 0;
-
+            var chatId = setting.User?.ChatId ?? 0;
             if (chatId == 0) continue;
 
-            // 按 RuleCategory + RuleType 分组
-            var ruleGroups = userSettings.GroupBy(s => (s.RuleCategory, s.RuleType));
-
-            foreach (var ruleGroup in ruleGroups)
+            // 检测所有玩法（使用统一阈值）
+            var triggered = CheckAllPlayTypes(setting.Threshold, stats, result, groupName, chatId);
+            
+            if (triggered != null && triggered.TriggeredBetTypes.Any())
             {
-                var (category, ruleType) = ruleGroup.Key;
-                var threshold = ruleGroup.First().Threshold;
-
-                // 检测该规则组的所有触发条件
-                var triggered = CheckRuleGroup(category, ruleType, threshold, stats, result, groupName, chatId);
-                
-                if (triggered != null)
-                {
-                    await _pushService.SendPushAsync(triggered, cancellationToken);
-                }
+                await _pushService.SendPushAsync(triggered, cancellationToken);
             }
         }
+    }
+
+    /// <summary>
+    /// 检测所有玩法类型
+    /// </summary>
+    private PushMessageDto? CheckAllPlayTypes(
+        int threshold,
+        Dictionary<(RuleType, BetType), int> stats,
+        LotteryResult result,
+        string groupName,
+        long chatId)
+    {
+        var allBetTypes = new[] 
+        { 
+            BetType.Big, BetType.Small, BetType.Odd, BetType.Even,
+            BetType.BigOdd, BetType.BigEven, BetType.SmallOdd, BetType.SmallEven,
+            BetType.Dragon
+        };
+
+        var triggered = new List<(BetType Type, int Count)>();
+
+        // 检测连开
+        foreach (var betType in allBetTypes)
+        {
+            var key = (RuleType.Consecutive, betType);
+            if (stats.TryGetValue(key, out var count) && count >= threshold)
+            {
+                triggered.Add((betType, count));
+            }
+        }
+
+        if (!triggered.Any())
+            return null;
+
+        _logger.LogInformation(
+            "触发推送: 群组={GroupName}, 阈值={Threshold}, 触发数={Count}",
+            groupName, threshold, triggered.Count);
+
+        return new PushMessageDto
+        {
+            ChatId = chatId,
+            GroupName = groupName,
+            PeriodId = result.PeriodId,
+            DiceNumber = result.DiceNumber,
+            RuleType = RuleType.Consecutive,
+            RuleCategory = "All",
+            TriggeredBetTypes = triggered
+        };
     }
 
     /// <summary>
