@@ -28,8 +28,14 @@ public class UserSetting
     public RuleType RuleType { get; set; }
 
     /// <summary>
-    /// 投注类型（大/小/单/双）
+    /// 规则分类（Basic=大小单双, Combo=组合, Dragon=花龙）
     /// </summary>
+    public string RuleCategory { get; set; } = "Basic";
+
+    /// <summary>
+    /// 投注类型（已弃用，保留用于数据兼容）
+    /// </summary>
+    [Obsolete("Use RuleCategory instead")]
     public BetType BetType { get; set; }
 
     /// <summary>
@@ -68,6 +74,13 @@ public class UserSetting
     public string GetDescription()
     {
         var ruleDesc = RuleType == RuleType.Missing ? "遗漏" : "连开";
-        return $"【{BetType.ToChineseName()}】{ruleDesc} {Threshold} 期";
+        var categoryDesc = RuleCategory switch
+        {
+            "Basic" => "大小单双",
+            "Combo" => "组合玩法",
+            "Dragon" => "花龙",
+            _ => RuleCategory
+        };
+        return $"【{categoryDesc}】{ruleDesc} {Threshold} 期";
     }
 }

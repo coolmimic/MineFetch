@@ -317,15 +317,8 @@ public class TelegramBotService
 
                 if (int.TryParse(valStr, out var threshold))
                 {
-                    // 根据 category 展开需要保存的 BetTypes
-                    var betTypes = GetBetTypesByCategory(category);
-                    int count = 0;
-
-                    foreach (var betType in betTypes)
-                    {
-                        await SaveRuleAsync(userId, chatId, betType, ruleTypeStr, threshold, cancellationToken);
-                        count++;
-                    }
+                    // 保存单个规则（使用 RuleCategory 标识规则组）
+                    await SaveRuleAsync(userId, chatId, category, ruleTypeStr, threshold, cancellationToken);
 
                     // 用确认消息替换原消息
                     string catName = category switch
@@ -339,7 +332,7 @@ public class TelegramBotService
                     await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
                         $"✅ *规则添加成功！*\n\n" +
                         $"监控：所有群\n" +
-                        $"玩法：{catName} ({count}个监控项)\n" +
+                        $"玩法：{catName}\n" +
                         $"类型：{GetRuleTypeName(ruleTypeStr)}\n" +
                         $"阈值：{threshold} 期",
                         parseMode: ParseMode.Markdown,
@@ -356,27 +349,15 @@ public class TelegramBotService
         }
     }
 
-    private List<string> GetBetTypesByCategory(string category)
+    private async Task SaveRuleAsync(long userId, long chatId, string category, string ruleTypeStr, int threshold, CancellationToken cancellationToken)
     {
-        return category switch
-        {
-            "Basic" => new List<string> { "Big", "Small", "Odd", "Even" },
-            "Combo" => new List<string> { "BigOdd", "BigEven", "SmallOdd", "SmallEven" },
-            "Dragon" => new List<string> { "Dragon" },
-            _ => new List<string> { category } // Fallback
-        };
-    }
-
-    private async Task SaveRuleAsync(long userId, long chatId, string betTypeStr, string ruleTypeStr, int threshold, CancellationToken cancellationToken)
-    {
-        var betType = Enum.Parse<BetType>(betTypeStr);
         var ruleType = Enum.Parse<RuleType>(ruleTypeStr);
         long? groupId = null; // 全局规则
 
         // 检查是否已存在
         var exists = await _dbContext.UserSettings
-            .AnyAsync(s => s.UserId == userId && (s.GroupId == groupId || s.GroupId == 0) && 
-                           s.RuleType == ruleType && s.BetType == betType && s.Threshold == threshold, 
+            .AnyAsync(s => s.UserId == userId && s.GroupId == groupId && 
+                           s.RuleType == ruleType && s.RuleCategory == category && s.Threshold == threshold, 
                       cancellationToken);
 
         if (exists) return; // 静默跳过重复的
@@ -386,7 +367,8 @@ public class TelegramBotService
             UserId = userId,
             GroupId = groupId,
             RuleType = ruleType,
-            BetType = betType,
+            RuleCategory = category,
+            BetType = BetType.Big, // 保留兼容性，设置默认值
             Threshold = threshold,
             IsEnabled = true
         };
