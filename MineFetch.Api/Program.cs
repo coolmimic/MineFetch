@@ -39,7 +39,11 @@ var botToken = builder.Configuration["Telegram:BotToken"]
 
 builder.Services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(botToken));
 
+// 添加内存缓存
+builder.Services.AddMemoryCache();
+
 // 注册服务
+builder.Services.AddSingleton<LotteryCacheService>(); // 缓存服务使用单例
 builder.Services.AddScoped<LotteryService>();
 builder.Services.AddScoped<RuleEngine>();
 builder.Services.AddScoped<PushService>();

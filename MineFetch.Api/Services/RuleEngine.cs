@@ -14,15 +14,18 @@ public class RuleEngine
     private readonly ILogger<RuleEngine> _logger;
     private readonly AppDbContext _dbContext;
     private readonly PushService _pushService;
+    private readonly LotteryCacheService _cacheService;
 
     public RuleEngine(
         ILogger<RuleEngine> logger,
         AppDbContext dbContext,
-        PushService pushService)
+        PushService pushService,
+        LotteryCacheService cacheService)
     {
         _logger = logger;
         _dbContext = dbContext;
         _pushService = pushService;
+        _cacheService = cacheService;
     }
 
     /// <summary>
@@ -30,12 +33,25 @@ public class RuleEngine
     /// </summary>
     public async Task CheckRulesAsync(LotteryResult result, CancellationToken cancellationToken = default)
     {
-        // 获取该群组最近的开奖记录（用于计算连续次数）
-        var recentResults = await _dbContext.LotteryResults
-            .Where(r => r.GroupId == result.GroupId)
-            .OrderByDescending(r => r.CreatedAt)
-            .Take(50)
-            .ToListAsync(cancellationToken);
+        // 优先从缓存获取该群组最近的开奖记录
+        var recentResults = _cacheService.GetRecentResults(result.GroupId);
+        
+        // 如果缓存未命中，从数据库加载并初始化缓存
+        if (recentResults == null || recentResults.Count < 2)
+        {
+            _logger.LogDebug("缓存未命中，从数据库加载群组 {GroupId} 的历史记录", result.GroupId);
+            
+            recentResults = await _dbContext.LotteryResults
+                .Where(r => r.GroupId == result.GroupId)
+                .OrderByDescending(r => r.CreatedAt)
+                .Take(50)
+                .ToListAsync(cancellationToken);
+
+            if (recentResults.Count >= 2)
+            {
+                _cacheService.InitializeCache(result.GroupId, recentResults);
+            }
+        }
 
         if (recentResults.Count < 2)
         {
@@ -43,7 +59,7 @@ public class RuleEngine
             return;
         }
 
-        // 获取订阅该群组的所有用户设置（包括全局规则 GroupId = 0）
+        // 获取订阅该群组的所有用户设置（包括全局规则 GroupId = null）
         var settings = await _dbContext.UserSettings
             .Include(s => s.User)
             .Include(s => s.Group)

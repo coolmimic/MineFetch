@@ -13,15 +13,18 @@ public class LotteryService
     private readonly ILogger<LotteryService> _logger;
     private readonly AppDbContext _dbContext;
     private readonly RuleEngine _ruleEngine;
+    private readonly LotteryCacheService _cacheService;
 
     public LotteryService(
         ILogger<LotteryService> logger,
         AppDbContext dbContext,
-        RuleEngine ruleEngine)
+        RuleEngine ruleEngine,
+        LotteryCacheService cacheService)
     {
         _logger = logger;
         _dbContext = dbContext;
         _ruleEngine = ruleEngine;
+        _cacheService = cacheService;
     }
 
     /// <summary>
@@ -74,6 +77,9 @@ public class LotteryService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("✅ 开奖记录已保存: {Result}", result);
+
+        // 立即添加到缓存
+        _cacheService.AddResult(result);
 
         // 触发规则检查
         await _ruleEngine.CheckRulesAsync(result, cancellationToken);
