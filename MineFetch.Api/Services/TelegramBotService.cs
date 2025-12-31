@@ -206,7 +206,7 @@ public class TelegramBotService
                 GroupId = null, // 全局监控
                 RuleType = RuleType.Consecutive,
                 RuleCategory = "All",
-                Threshold = 20,
+                Threshold = 10,
                 IsEnabled = true
             };
             _dbContext.UserSettings.Add(setting);
@@ -251,12 +251,11 @@ public class TelegramBotService
                     setting.UpdatedAt = DateTime.UtcNow;
                     await _dbContext.SaveChangesAsync(cancellationToken);
 
-                    await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                        $"✅ 长龙阈值已设置为 *{threshold}* 期\n\n开始监控所有玩法...",
-                        parseMode: ParseMode.Markdown,
-                        cancellationToken: cancellationToken);
+                    // 删除原消息并返回主菜单
+                    await _botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
+                    await ShowMainMenu(chatId, userId, cancellationToken);
                         
-                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "✅ 已更新", cancellationToken: cancellationToken);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ 阈值已设置为 {threshold} 期", cancellationToken: cancellationToken);
                 }
             }
             // 开启播报
