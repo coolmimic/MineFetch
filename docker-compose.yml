@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # 后台 API 服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: minefetch-api
+    restart: unless-stopped
+    ports:
+      - "5000:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:80
+      - ConnectionStrings__DefaultConnection=Host=db;Database=minefetch;Username=postgres;Password=${POSTGRES_PASSWORD:-minefetch123}
+      - Telegram__BotToken=${BOT_TOKEN}
+      - Telegram__WebhookUrl=${WEBHOOK_URL:-}
+    volumes:
+      - api-data:/app/data
+      - api-logs:/app/logs
+    depends_on:
+      - db
+    networks:
+      - minefetch-network
+
+  # PostgreSQL 数据库
+  db:
+    image: postgres:16-alpine
+    container_name: minefetch-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=minefetch
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-minefetch123}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - minefetch-network
+  # 采集端（可选，可以单独运行）
+  # collector:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.collector
+  #   container_name: minefetch-collector
+  #   restart: unless-stopped
+  #   environment:
+  #     - Telegram__ApiId=${TELEGRAM_API_ID}
+  #     - Telegram__ApiHash=${TELEGRAM_API_HASH}
+  #     - Telegram__PhoneNumber=${TELEGRAM_PHONE}
+  #     - Backend__BaseUrl=http://api:80
+  #     - Backend__Enabled=true
+  #   volumes:
+  #     - collector-data:/app
+  #     - collector-logs:/app/logs
+  #   depends_on:
+  #     - api
+  #   networks:
+  #     - minefetch-network
+  #   stdin_open: true
+  #   tty: true
+
+volumes:
+  db-data:
+  api-data:
+  api-logs:
+    # collector-data:
+    # collector-logs:
+
+networks:
+  minefetch-network:
+    driver: bridge

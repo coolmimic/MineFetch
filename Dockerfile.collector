@@ -1,0 +1,32 @@
+# MineFetch Collector Dockerfile
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS base
+WORKDIR /app
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# 复制项目文件
+COPY ["MineFetch.Collector/MineFetch.Collector.csproj", "MineFetch.Collector/"]
+COPY ["MineFetch.Entities/MineFetch.Entities.csproj", "MineFetch.Entities/"]
+
+# 还原依赖
+RUN dotnet restore "MineFetch.Collector/MineFetch.Collector.csproj"
+
+# 复制源代码
+COPY . .
+
+# 构建
+WORKDIR "/src/MineFetch.Collector"
+RUN dotnet build "MineFetch.Collector.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "MineFetch.Collector.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+
+ENTRYPOINT ["dotnet", "MineFetch.Collector.dll"]

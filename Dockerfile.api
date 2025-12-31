@@ -1,0 +1,33 @@
+# MineFetch API Dockerfile
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+WORKDIR /app
+EXPOSE 80
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+
+# 复制项目文件
+COPY ["MineFetch.Api/MineFetch.Api.csproj", "MineFetch.Api/"]
+COPY ["MineFetch.Entities/MineFetch.Entities.csproj", "MineFetch.Entities/"]
+
+# 还原依赖
+RUN dotnet restore "MineFetch.Api/MineFetch.Api.csproj"
+
+# 复制源代码
+COPY . .
+
+# 构建
+WORKDIR "/src/MineFetch.Api"
+RUN dotnet build "MineFetch.Api.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "MineFetch.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# 创建数据目录
+RUN mkdir -p /app/data /app/logs
+
+ENTRYPOINT ["dotnet", "MineFetch.Api.dll"]

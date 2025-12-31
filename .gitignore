@@ -1,0 +1,42 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Dd]ebug/
+[Rr]elease/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.cache
+
+# JetBrains Rider
+.idea/
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs
+logs/
+*.log
+
+# Session files (contains login credentials!)
+session.dat
+*.session
+
+# User-specific config
+appsettings.Development.json
+appsettings.Local.json
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Docker
+.env
+
+# SQLite database
+*.db
+*.db-journal
