@@ -2,103 +2,80 @@
 set -e
 
 # ==========================================
-#   MineFetch 一键部署脚本
-#   适用于 Ubuntu 22.04+
+#   MineFetch 自动部署脚本
+#   说明：请在项目源码根目录运行 (如 ~/MineFetch)
 # ==========================================
 
-echo "=========================================="
-echo "  MineFetch 一键部署脚本"
-echo "=========================================="
-echo ""
+APP_DIR="/opt/minefetch"
+SOURCE_DIR=$(pwd)
 
-# 检查是否为 root
-if [ "$EUID" -ne 0 ]; then
-    echo "请使用 sudo 运行此脚本"
+echo "=========================================="
+echo "  biubiu~ MineFetch 部署启动 🚀"
+echo "=========================================="
+
+# 1. 检查运行位置
+if [ ! -d "MineFetch.Api" ] || [ ! -f "docker-compose.yml" ]; then
+    echo "❌ 错误：请在项目根目录下运行此脚本！"
+    echo "   当前目录: $SOURCE_DIR"
+    echo "   正确操作: cd ~/MineFetch && sudo bash deploy.sh"
     exit 1
 fi
 
-# 生成目录
-APP_DIR="/opt/minefetch"
+# 2. 检查 Root 权限
+if [ "$EUID" -ne 0 ]; then
+    echo "❌ 请使用 sudo 运行此脚本"
+    exit 1
+fi
+
+# 3. 准备目录 & 同步代码
+echo "📂 同步代码到 $APP_DIR ..."
 mkdir -p $APP_DIR
+
+# 复制核心项目文件 (强制覆盖，但避开 .env)
+# 使用 cp -r 复制目录和文件
+cp -r MineFetch.Api "$APP_DIR/"
+cp -r MineFetch.Entities "$APP_DIR/"
+cp -r MineFetch.Collector "$APP_DIR/"
+cp docker-compose.yml "$APP_DIR/"
+cp Dockerfile.api "$APP_DIR/"
+
+if [ -f "nginx.conf" ]; then
+    cp nginx.conf "$APP_DIR/"
+fi
+
+# 4. 检查环境配置
 cd $APP_DIR
 
-# 检查并安装 Docker
+if [ ! -f .env ]; then
+    echo "⚠️  创建默认配置文件..."
+    cat > .env << 'EOF'
+POSTGRES_PASSWORD=minefetch123
+BOT_TOKEN=YOUR_BOT_TOKEN_HERE
+WEBHOOK_URL=
+EOF
+    echo "❌ 请先编辑配置：nano $APP_DIR/.env"
+    exit 1
+fi
+
+# 5. 检查 Docker 环境
 if ! command -v docker &> /dev/null; then
     echo "📦 安装 Docker..."
     curl -fsSL https://get.docker.com | sh
-    systemctl enable docker
-    systemctl start docker
-    echo "✅ Docker 安装完成"
-else
-    echo "✅ Docker 已安装"
 fi
 
-# 检查并安装 Docker Compose
-if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
-    echo "📦 安装 Docker Compose..."
-    apt-get update && apt-get install -y docker-compose-plugin
-    echo "✅ Docker Compose 安装完成"
-else
-    echo "✅ Docker Compose 已安装"
-fi
-
-# 检查 .env 文件
-if [ ! -f .env ]; then
-    cat > .env << 'EOF'
-# MineFetch 配置文件
-# 请修改以下配置
-
-# PostgreSQL 密码
-POSTGRES_PASSWORD=minefetch123
-
-# Telegram Bot Token（必填）
-BOT_TOKEN=YOUR_BOT_TOKEN_HERE
-
-# Webhook URL（可选，留空使用轮询模式）
-# 格式: https://your-domain.com/api/webhook
-WEBHOOK_URL=
-EOF
-    echo ""
-    echo "⚠️  已创建 .env 配置文件，请编辑后重新运行："
-    echo "    nano $APP_DIR/.env"
-    echo ""
-    exit 1
-fi
-
-# 检查 BOT_TOKEN 是否配置
-source .env
-if [ "$BOT_TOKEN" = "YOUR_BOT_TOKEN_HERE" ] || [ -z "$BOT_TOKEN" ]; then
-    echo "❌ 请先在 .env 中配置 BOT_TOKEN"
-    echo "   nano $APP_DIR/.env"
-    exit 1
-fi
-
-echo ""
-echo "📥 开始部署..."
-
-# 使用 docker compose 或 docker-compose
+# 6. 启动服务
+echo "� 正在构建并启动服务..."
+# 尝试使用新版 docker compose 命令，失败则回退到 docker-compose
 if docker compose version &> /dev/null; then
-    COMPOSE_CMD="docker compose"
+    docker compose up -d --build
 else
-    COMPOSE_CMD="docker-compose"
+    docker-compose up -d --build
 fi
 
-# 构建并启动
-$COMPOSE_CMD up -d --build
-
 echo ""
 echo "=========================================="
-echo "  ✅ 部署完成！"
+echo "  ✅ 部署成功！"
 echo "=========================================="
+echo "  API 地址: http://localhost:5000"
+echo "  工作目录: $APP_DIR"
 echo ""
-echo "  API 地址: http://$(hostname -I | awk '{print $1}'):5000"
-echo "  Swagger:  http://$(hostname -I | awk '{print $1}'):5000/swagger"
-echo ""
-echo "  管理命令:"
-echo "    查看日志: cd $APP_DIR && $COMPOSE_CMD logs -f"
-echo "    停止服务: cd $APP_DIR && $COMPOSE_CMD down"
-echo "    重启服务: cd $APP_DIR && $COMPOSE_CMD restart"
-echo ""
-
-# 显示状态
-$COMPOSE_CMD ps
