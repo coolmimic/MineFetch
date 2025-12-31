@@ -106,15 +106,16 @@ public class TelegramBotService
             👋 欢迎使用扫雷数据采集助手！
 
             🤖 我会自动监控所有群组的开奖结果。
-
-            📋 常用命令：
-            /add - 添加推送规则（按钮操作）
-            /list - 查看我的规则
-            /del - 删除规则
-            /help - 查看帮助文档
             """;
 
-        await _botClient.SendMessage(chatId, text, cancellationToken: cancellationToken);
+        var keyboard = new InlineKeyboardMarkup(new[]
+        {
+            new[] { InlineKeyboardButton.WithCallbackData("➕ 添加规则", "cmd_add") },
+            new[] { InlineKeyboardButton.WithCallbackData("📋 我的规则", "cmd_list") },
+            new[] { InlineKeyboardButton.WithCallbackData("❓ 使用帮助", "cmd_help") }
+        });
+
+        await _botClient.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: cancellationToken);
     }
 
     private async Task HandleHelpAsync(long chatId, CancellationToken cancellationToken)
@@ -166,7 +167,7 @@ public class TelegramBotService
         }
     }
 
-    private async Task HandleDeleteSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
+    private async Task HandleDeleteSettingAsync(long userId, long chatId, CancellationToken cancellationToken)
     {
         if (!int.TryParse(args.Trim(), out var settingId))
         {
@@ -222,23 +223,16 @@ public class TelegramBotService
 
     private async Task HandleAddSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
     {
-        // 步骤 1: 选择玩法
+        // 步骤 0: 选择玩法大类
         var keyboard = new InlineKeyboardMarkup(new[]
         {
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("🔴 大 (4-6)", "step1_Big"),
-                InlineKeyboardButton.WithCallbackData("🔵 小 (1-3)", "step1_Small"),
-            },
-            new[]
-            {
-                InlineKeyboardButton.WithCallbackData("🟢 单 (1,3,5)", "step1_Odd"),
-                InlineKeyboardButton.WithCallbackData("🟡 双 (2,4,6)", "step1_Even"),
-            }
+            new[] { InlineKeyboardButton.WithCallbackData("� 基础玩法 (大/小/单/双)", "cat_Basic") },
+            new[] { InlineKeyboardButton.WithCallbackData("🧩 组合玩法 (大单/小双等)", "cat_Combo") },
+            new[] { InlineKeyboardButton.WithCallbackData("� 花龙玩法 (跳龙)", "cat_Dragon") }
         });
 
         await _botClient.SendMessage(chatId, 
-            "🔢 *第一步：请选择监控玩法*", 
+            "� *请选择玩法类型*", 
             parseMode: ParseMode.Markdown,
             replyMarkup: keyboard,
             cancellationToken: cancellationToken);
@@ -254,17 +248,69 @@ public class TelegramBotService
 
         try
         {
-            // 处理步骤 1: 选择玩法 -> 进入步骤 2 (选择规则类型)
-            if (data.StartsWith("step1_"))
+            // 主菜单命令
+            if (data == "cmd_add")
+            {
+                await HandleAddSettingAsync(userId, chatId, "", cancellationToken);
+            }
+            else if (data == "cmd_list")
+            {
+                await HandleListSettingsAsync(userId, chatId, cancellationToken);
+            }
+            else if (data == "cmd_help")
+            {
+                await HandleHelpAsync(chatId, cancellationToken);
+            }
+            // 步骤 1: 选择大类 -> 显示具体玩法
+            else if (data.StartsWith("cat_"))
+            {
+                var category = data.Split('_')[1];
+                InlineKeyboardMarkup keyboard;
+                string text;
+
+                if (category == "Basic")
+                {
+                    text = "🔘 *基础玩法*";
+                    keyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("🔴 大", "step1_Big"), InlineKeyboardButton.WithCallbackData("🔵 小", "step1_Small") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🟢 单", "step1_Odd"), InlineKeyboardButton.WithCallbackData("🟡 双", "step1_Even") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
+                    });
+                }
+                else if (category == "Combo")
+                {
+                    text = "🧩 *组合玩法*";
+                    keyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("大单", "step1_BigOdd"), InlineKeyboardButton.WithCallbackData("大双", "step1_BigEven") },
+                        new[] { InlineKeyboardButton.WithCallbackData("小单", "step1_SmallOdd"), InlineKeyboardButton.WithCallbackData("小双", "step1_SmallEven") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
+                    });
+                }
+                else // Dragon
+                {
+                    // 花龙只有一种，且只有连开，直接跳到选期数
+                    // 模拟选择了 Dragon 和 Consecutive
+                    data = "step2_Dragon_Consecutive"; 
+                    goto Step2_Jump; 
+                }
+
+                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                    text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: cancellationToken);
+            }
+            // 步骤 1: 选择玩法 -> 进入步骤 2 (选择规则类型)
+            else if (data.StartsWith("step1_"))
             {
                 var betType = data.Split('_')[1];
                 var keyboard = new InlineKeyboardMarkup(new[]
                 {
                     new[]
                     {
-                        InlineKeyboardButton.WithCallbackData("🔥 连开 (连续出现)", $"step2_{betType}_Consecutive"),
-                        InlineKeyboardButton.WithCallbackData("❄️ 遗漏 (连续未出)", $"step2_{betType}_Missing"),
-                    }
+                        InlineKeyboardButton.WithCallbackData("🔥 连开", $"step2_{betType}_Consecutive"),
+                        InlineKeyboardButton.WithCallbackData("❄️ 遗漏", $"step2_{betType}_Missing"),
+                    },
+                    new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
                 });
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
@@ -273,8 +319,10 @@ public class TelegramBotService
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
             }
-            // 处理步骤 2: 选择规则类型 -> 进入步骤 3 (选择期数)
-            else if (data.StartsWith("step2_"))
+            
+            Step2_Jump:
+            // 步骤 2: 选择规则类型 -> 进入步骤 3 (选择期数)
+            if (data.StartsWith("step2_"))
             {
                 var parts = data.Split('_');
                 var betType = parts[1];
@@ -283,19 +331,10 @@ public class TelegramBotService
 
                 var keyboard = new InlineKeyboardMarkup(new[]
                 {
-                    new[] 
-                    { 
-                        InlineKeyboardButton.WithCallbackData("3 期", prefix + "3"),
-                        InlineKeyboardButton.WithCallbackData("5 期", prefix + "5"),
-                        InlineKeyboardButton.WithCallbackData("8 期", prefix + "8")
-                    },
-                    new[] 
-                    { 
-                        InlineKeyboardButton.WithCallbackData("10 期", prefix + "10"),
-                        InlineKeyboardButton.WithCallbackData("15 期", prefix + "15"),
-                        InlineKeyboardButton.WithCallbackData("20 期", prefix + "20")
-                    },
-                    new[] { InlineKeyboardButton.WithCallbackData("✏️ 自定义期数", prefix + "custom") }
+                    new[] { InlineKeyboardButton.WithCallbackData("3 期", prefix + "3"), InlineKeyboardButton.WithCallbackData("4 期", prefix + "4"), InlineKeyboardButton.WithCallbackData("5 期", prefix + "5") },
+                    new[] { InlineKeyboardButton.WithCallbackData("6 期", prefix + "6"), InlineKeyboardButton.WithCallbackData("7 期", prefix + "7"), InlineKeyboardButton.WithCallbackData("8 期", prefix + "8") },
+                    new[] { InlineKeyboardButton.WithCallbackData("10 期", prefix + "10"), InlineKeyboardButton.WithCallbackData("12 期", prefix + "12"), InlineKeyboardButton.WithCallbackData("15 期", prefix + "15") },
+                    new[] { InlineKeyboardButton.WithCallbackData("✏️ 自定义", prefix + "custom"), InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
                 });
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
@@ -304,7 +343,7 @@ public class TelegramBotService
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
             }
-            // 处理步骤 3: 保存规则
+            // 步骤 3: 保存规则
             else if (data.StartsWith("step3_"))
             {
                 var parts = data.Split('_');
@@ -314,14 +353,11 @@ public class TelegramBotService
 
                 if (valStr == "custom")
                 {
-                    // 自定义输入提示
                     await _botClient.SendMessage(chatId, 
                         $"请输入自定义期数（格式：`/add {betTypeStr} {ruleTypeStr} 数字`）\n" +
                         $"例如：`/add {betTypeStr} {ruleTypeStr} 12`",
                         parseMode: ParseMode.Markdown,
                         cancellationToken: cancellationToken);
-                    
-                    // 也可以考虑使用 UserState 来记录状态等待用户通过文本输入，这里简单起见让用户用命令补全
                     return; 
                 }
 
@@ -329,8 +365,14 @@ public class TelegramBotService
                 {
                     await SaveRuleAsync(userId, chatId, betTypeStr, ruleTypeStr, threshold, cancellationToken);
                     
-                    // 删除原来的按钮消息
-                    await _botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
+                    // 用确认消息替换原消息
+                    await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                        $"✅ *规则添加成功！*\n\n" +
+                        $"玩法：{GetBetTypeName(betTypeStr)}\n" +
+                        $"类型：{GetRuleTypeName(ruleTypeStr)}\n" +
+                        $"阈值：{threshold} 期",
+                        parseMode: ParseMode.Markdown,
+                        cancellationToken: cancellationToken);
                 }
             }
         }
@@ -371,21 +413,16 @@ public class TelegramBotService
 
         _dbContext.UserSettings.Add(setting);
         await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _botClient.SendMessage(chatId,
-            $"✅ *规则添加成功！*\n\n" +
-            $"监控：所有群\n" +
-            $"玩法：{GetBetTypeName(betTypeStr)}\n" +
-            $"类型：{GetRuleTypeName(ruleTypeStr)}\n" +
-            $"阈值：{threshold} 期",
-            parseMode: ParseMode.Markdown,
-            cancellationToken: cancellationToken);
     }
 
     private string GetBetTypeName(string type) => type switch
     {
         "Big" => "🔴 大", "Small" => "🔵 小", 
-        "Odd" => "🟢 单", "Even" => "🟡 双", _ => type
+        "Odd" => "🟢 单", "Even" => "🟡 双",
+        "BigOdd" => "大单", "BigEven" => "大双",
+        "SmallOdd" => "小单", "SmallEven" => "小双",
+        "Dragon" => "🐉 花龙",
+        _ => type
     };
 
     private string GetRuleTypeName(string type) => type switch

@@ -77,45 +77,89 @@ public class RuleEngine
     {
         var stats = new Dictionary<(RuleType, BetType), int>();
         
-        // 初始化所有组合
+        // 1. 常规类型的连开和遗漏（包括组合）
         foreach (BetType betType in Enum.GetValues<BetType>())
         {
-            stats[(RuleType.Consecutive, betType)] = 0;
-            stats[(RuleType.Missing, betType)] = 0;
-        }
+            if (betType == BetType.Dragon) continue; // 花龙单独计算
 
-        if (!results.Any())
-            return stats;
-
-        // 计算连开次数（从最新开始）
-        foreach (BetType betType in Enum.GetValues<BetType>())
-        {
+            // 连开
             int consecutive = 0;
             foreach (var r in results)
             {
-                if (betType.Matches(r.DiceNumber))
-                    consecutive++;
-                else
-                    break;
+                if (betType.Matches(r.DiceNumber)) consecutive++;
+                else break;
             }
             stats[(RuleType.Consecutive, betType)] = consecutive;
-        }
 
-        // 计算遗漏次数（从最新开始，直到出现该类型）
-        foreach (BetType betType in Enum.GetValues<BetType>())
-        {
+            // 遗漏
             int missing = 0;
             foreach (var r in results)
             {
-                if (betType.Matches(r.DiceNumber))
-                    break;
+                if (betType.Matches(r.DiceNumber)) break;
                 missing++;
             }
             stats[(RuleType.Missing, betType)] = missing;
         }
 
+        // 2. 花龙（跳龙）计算 - 只算连开
+        // 逻辑：检测大小跳或单双跳，取最大值
+        int dragonCount = CalculateDragonCount(results);
+        stats[(RuleType.Consecutive, BetType.Dragon)] = dragonCount;
+        stats[(RuleType.Missing, BetType.Dragon)] = 0; // 花龙暂不计算遗漏
+
         return stats;
     }
+
+    /// <summary>
+    /// 计算花龙连开期数
+    /// 定义：连续的单跳（如 大-小-大-小 或 单-双-单-双）
+    /// </summary>
+    private int CalculateDragonCount(List<LotteryResult> results)
+    {
+        if (results.Count < 2) return 0;
+
+        // 计算大小花龙
+        int bsDragon = 1;
+        bool? lastIsBig = IsBig(results[0].DiceNumber);
+        for (int i = 1; i < results.Count; i++)
+        {
+            bool? currentIsBig = IsBig(results[i].DiceNumber);
+            if (currentIsBig != lastIsBig) // 发生跳变
+            {
+                bsDragon++;
+                lastIsBig = currentIsBig;
+            }
+            else
+            {
+                break; // 连开断了
+            }
+        }
+
+        // 计算单双花龙
+        int oeDragon = 1;
+        bool? lastIsOdd = IsOdd(results[0].DiceNumber);
+        for (int i = 1; i < results.Count; i++)
+        {
+            bool? currentIsOdd = IsOdd(results[i].DiceNumber);
+            if (currentIsOdd != lastIsOdd) // 发生跳变
+            {
+                oeDragon++;
+                lastIsOdd = currentIsOdd;
+            }
+            else
+            {
+                break; // 连开断了
+            }
+        }
+
+        // 只要满足一种花龙，取最大值
+        // 但要注意：如果只有1期，不能叫花龙（没跳），至少要2期才算跳
+        // 实际上单期也可以算作花龙的起点，但为了推送意义，阈值通常>1
+        return Math.Max(bsDragon, oeDragon);
+    }
+
+    private bool IsBig(int n) => n >= 4;
+    private bool IsOdd(int n) => n % 2 == 1;
 
     /// <summary>
     /// 检查单个设置是否触发
