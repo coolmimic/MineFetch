@@ -25,13 +25,21 @@ public class WebhookController : ControllerBase
     /// Telegram Bot Webhook 入口
     /// </summary>
     [HttpPost]
-    public async Task<IActionResult> Post([FromBody] JsonDocument json, CancellationToken cancellationToken)
+    public async Task<IActionResult> Post(CancellationToken cancellationToken)
     {
         try
         {
-            // 先记录原始 JSON
-            var rawJson = json.RootElement.GetRawText();
+            // 读取原始请求体
+            using var reader = new StreamReader(Request.Body);
+            var rawJson = await reader.ReadToEndAsync(cancellationToken);
+            
             _logger.LogInformation("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
+            
+            if (string.IsNullOrEmpty(rawJson))
+            {
+                _logger.LogWarning("Webhook 请求体为空");
+                return Ok();
+            }
             
             // 手动反序列化
             var update = JsonSerializer.Deserialize<Update>(rawJson, new JsonSerializerOptions
