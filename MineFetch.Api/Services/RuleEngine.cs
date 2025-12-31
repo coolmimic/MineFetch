@@ -59,6 +59,11 @@ public class RuleEngine
             return;
         }
 
+        // 获取群名称
+        var group = await _dbContext.TelegramGroups
+            .FirstOrDefaultAsync(g => g.Id == result.GroupId, cancellationToken);
+        var groupName = group?.Title ?? $"群组 {result.GroupId}";
+
         // 获取订阅该群组的所有用户设置（包括全局规则 GroupId = null）
         var settings = await _dbContext.UserSettings
             .Include(s => s.User)
@@ -75,13 +80,32 @@ public class RuleEngine
         // 计算各类型的统计数据
         var stats = CalculateStats(recentResults);
 
-        // 检查每个用户设置
-        foreach (var setting in settings)
+        // 按用户分组检测规则
+        var userGroups = settings.GroupBy(s => s.UserId);
+
+        foreach (var userGroup in userGroups)
         {
-            var triggered = CheckSetting(setting, stats, result);
-            if (triggered != null)
+            var userId = userGroup.Key;
+            var userSettings = userGroup.ToList();
+            var chatId = userSettings.First().User?.ChatId ?? 0;
+
+            if (chatId == 0) continue;
+
+            // 按 RuleCategory + RuleType 分组
+            var ruleGroups = userSettings.GroupBy(s => (s.RuleCategory, s.RuleType));
+
+            foreach (var ruleGroup in ruleGroups)
             {
-                await _pushService.SendPushAsync(triggered, cancellationToken);
+                var (category, ruleType) = ruleGroup.Key;
+                var threshold = ruleGroup.First().Threshold;
+
+                // 检测该规则组的所有触发条件
+                var triggered = CheckRuleGroup(category, ruleType, threshold, stats, result, groupName, chatId);
+                
+                if (triggered != null)
+                {
+                    await _pushService.SendPushAsync(triggered, cancellationToken);
+                }
             }
         }
     }
@@ -178,14 +202,71 @@ public class RuleEngine
     private bool IsOdd(int n) => n % 2 == 1;
 
     /// <summary>
-    /// 检查单个设置是否触发
+    /// 检查规则组是否触发（新版，支持多条件合并）
     /// </summary>
+    private PushMessageDto? CheckRuleGroup(
+        string category,
+        RuleType ruleType,
+        int threshold,
+        Dictionary<(RuleType, BetType), int> stats,
+        LotteryResult result,
+        string groupName,
+        long chatId)
+    {
+        // 根据 category 获取需要检测的 BetTypes
+        var betTypesToCheck = category switch
+        {
+            "Basic" => new[] { BetType.Big, BetType.Small, BetType.Odd, BetType.Even },
+            "Combo" => new[] { BetType.BigOdd, BetType.BigEven, BetType.SmallOdd, BetType.SmallEven },
+            "Dragon" => new[] { BetType.Dragon },
+            _ => Array.Empty<BetType>()
+        };
+
+        // 检测所有触发的条件
+        var triggeredTypes = new List<(BetType Type, int Count)>();
+
+        foreach (var betType in betTypesToCheck)
+        {
+            var key = (ruleType, betType);
+            if (stats.TryGetValue(key, out var count) && count >= threshold)
+            {
+                triggeredTypes.Add((betType, count));
+            }
+        }
+
+        // 如果没有触发，返回 null
+        if (!triggeredTypes.Any())
+            return null;
+
+        // 触发规则，记录日志
+        _logger.LogInformation(
+            "规则组触发: 分类={Category}, 类型={RuleType}, 阈值={Threshold}, 触发项={Triggers}",
+            category, ruleType, threshold, string.Join(", ", triggeredTypes.Select(t => $"{t.Type}({t.Count})")));
+
+        return new PushMessageDto
+        {
+            ChatId = chatId,
+            GroupName = groupName,
+            PeriodId = result.PeriodId,
+            DiceNumber = result.DiceNumber,
+            RuleType = ruleType,
+            RuleCategory = category,
+            TriggeredBetTypes = triggeredTypes
+        };
+    }
+
+    /// <summary>
+    /// 检查单个设置是否触发（已弃用，保留兼容性）
+    /// </summary>
+    [Obsolete("Use CheckRuleGroup instead")]
     private PushMessageDto? CheckSetting(
         UserSetting setting, 
         Dictionary<(RuleType, BetType), int> stats,
         LotteryResult result)
     {
+#pragma warning disable CS0618
         var key = (setting.RuleType, setting.BetType);
+#pragma warning restore CS0618
         if (!stats.TryGetValue(key, out var count))
             return null;
 
@@ -197,6 +278,7 @@ public class RuleEngine
             "规则触发: 用户={UserId}, 规则={RuleType} {BetType} >= {Threshold}, 实际={Count}",
             setting.UserId, setting.RuleType, setting.BetType, setting.Threshold, count);
 
+#pragma warning disable CS0618
         return new PushMessageDto
         {
             ChatId = setting.User!.ChatId,
@@ -207,5 +289,6 @@ public class RuleEngine
             BetType = setting.BetType,
             Count = count
         };
+#pragma warning restore CS0618
     }
 }
