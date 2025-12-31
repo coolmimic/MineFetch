@@ -223,31 +223,16 @@ public class TelegramBotService
 
     private async Task HandleAddSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
     {
-        // 直接展示所有玩法，取消分类层级
+        // 步骤 0: 选择玩法大类
         var keyboard = new InlineKeyboardMarkup(new[]
         {
-            // 第一行：基础玩法
-            new[] 
-            { 
-                InlineKeyboardButton.WithCallbackData("🔴 大", "step1_Big"), 
-                InlineKeyboardButton.WithCallbackData("🔵 小", "step1_Small"),
-                InlineKeyboardButton.WithCallbackData("🟢 单", "step1_Odd"), 
-                InlineKeyboardButton.WithCallbackData("🟡 双", "step1_Even") 
-            },
-            // 第二行：组合玩法
-            new[] 
-            { 
-                InlineKeyboardButton.WithCallbackData("大单", "step1_BigOdd"), 
-                InlineKeyboardButton.WithCallbackData("大双", "step1_BigEven"),
-                InlineKeyboardButton.WithCallbackData("小单", "step1_SmallOdd"), 
-                InlineKeyboardButton.WithCallbackData("小双", "step1_SmallEven") 
-            },
-            // 第三行：花龙
-            new[] { InlineKeyboardButton.WithCallbackData("🐉 花龙 (跳龙)", "step1_Dragon") }
+            new[] { InlineKeyboardButton.WithCallbackData("🔴 大小单双玩法", "cat_Basic") },
+            new[] { InlineKeyboardButton.WithCallbackData("🧩 组合玩法 (大单/大双...)", "cat_Combo") },
+            new[] { InlineKeyboardButton.WithCallbackData("🐉 花龙玩法", "cat_Dragon") }
         });
 
         await _botClient.SendMessage(chatId, 
-            "📂 *请选择监控玩法*", 
+            "📂 *请选择玩法类型*", 
             parseMode: ParseMode.Markdown,
             replyMarkup: keyboard,
             cancellationToken: cancellationToken);
@@ -276,8 +261,49 @@ public class TelegramBotService
             {
                 await HandleHelpAsync(chatId, cancellationToken);
             }
-            // 步骤 1: 选择玩法 -> 直接进入 (选择期数) [跳过选规则类型，默认连开]
-            else if (data.StartsWith("step1_"))
+            // 步骤 1: 根据大类显示具体玩法
+            else if (data.StartsWith("cat_"))
+            {
+                var category = data.Split('_')[1];
+
+                if (category == "Dragon")
+                {
+                    // 花龙特殊处理：直接当做选择了 Dragon 玩法，跳到选期数
+                    data = "step1_Dragon";
+                    goto JumpToStep3;
+                }
+
+                InlineKeyboardMarkup keyboard;
+                string text;
+
+                if (category == "Basic")
+                {
+                    text = "🔘 *请选择具体玩法*";
+                    keyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("🔴 大", "step1_Big"), InlineKeyboardButton.WithCallbackData("🔵 小", "step1_Small") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🟢 单", "step1_Odd"), InlineKeyboardButton.WithCallbackData("🟡 双", "step1_Even") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
+                    });
+                }
+                else // Combo
+                {
+                    text = "🧩 *请选择组合玩法*";
+                    keyboard = new InlineKeyboardMarkup(new[]
+                    {
+                        new[] { InlineKeyboardButton.WithCallbackData("大单", "step1_BigOdd"), InlineKeyboardButton.WithCallbackData("大双", "step1_BigEven") },
+                        new[] { InlineKeyboardButton.WithCallbackData("小单", "step1_SmallOdd"), InlineKeyboardButton.WithCallbackData("小双", "step1_SmallEven") },
+                        new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
+                    });
+                }
+
+                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                    text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: cancellationToken);
+            }
+            
+            JumpToStep3:
+            // 步骤 2: 选择玩法 -> 直接进入 (选择期数) [跳过选规则类型，默认连开]
+            if (data.StartsWith("step1_"))
             {
                 var betType = data.Split('_')[1];
                 var ruleType = "Consecutive"; // 默认规则类型：连开
