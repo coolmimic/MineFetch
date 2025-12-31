@@ -14,4 +14,9 @@ public class GroupSyncDto
     /// 群组名称
     /// </summary>
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 群组链接
+    /// </summary>
+    public string? GroupLink { get; set; }
 }

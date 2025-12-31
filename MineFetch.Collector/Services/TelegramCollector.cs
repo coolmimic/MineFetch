@@ -32,14 +32,7 @@ public class TelegramCollector : BackgroundService
         _parser = parser;
         _backendClient = backendClient;
 
-        // 加载监控群组配置
-        var groups = _configuration.GetSection("MonitorGroups").Get<List<MonitorGroupConfig>>() ?? new();
-        foreach (var group in groups)
-        {
-            _monitorGroups[group.GroupId] = group.GroupName;
-        }
-
-        Logger.Information("已配置 {Count} 个监控群组", _monitorGroups.Count);
+        Logger.Information("Telegram 采集服务已初始化");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -168,169 +161,7 @@ public class TelegramCollector : BackgroundService
         var dialogs = await _client.Messages_GetAllDialogs();
         Logger.Information("已获取 {Count} 个对话", dialogs.dialogs.Length);
 
-        // 读取 GroupLink.txt 中的群组链接
-        var groupLinksFile = "GroupLink.txt";
-        var whitelistLinks = new HashSet<string>();
-        var joinedGroupIds = new HashSet<long>(); // 记录通过白名单加入的群组 ID
-        
-        if (File.Exists(groupLinksFile))
-        {
-            var lines = File.ReadAllLines(groupLinksFile);
-            foreach (var line in lines)
-            {
-                var trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed) && trimmed.StartsWith("https://t.me/"))
-                {
-                    whitelistLinks.Add(trimmed);
-                }
-            }
-            Logger.Information("📋 从 GroupLink.txt 读取到 {Count} 个群组链接", whitelistLinks.Count);
-        }
-        else
-        {
-            Logger.Warning("⚠️ 未找到 GroupLink.txt 文件，将监控所有群组");
-        }
-
-        // 尝试加入 GroupLink.txt 中的群组
-        if (whitelistLinks.Any())
-        {
-            Logger.Information("🔗 开始加入白名单群组，共 {Count} 个...", whitelistLinks.Count);
-            var successCount = 0;
-            var failCount = 0;
-            var alreadyCount = 0;
-            var index = 0;
-            
-            foreach (var link in whitelistLinks)
-            {
-                index++;
-                try
-                {
-                    Logger.Information("[{Index}/{Total}] 处理: {Link}", index, whitelistLinks.Count, link);
-                    
-                    // 提取邀请哈希
-                    string inviteHash = "";
-                    if (link.Contains("/+"))
-                    {
-                        inviteHash = link.Split("/+")[1];
-                    }
-                    else if (link.Contains("/joinchat/"))
-                    {
-                        inviteHash = link.Split("/joinchat/")[1];
-                    }
-                    else
-                    {
-                        // 公开频道链接
-                        var username = link.Replace("https://t.me/", "");
-                        var resolved = await _client.Contacts_ResolveUsername(username);
-                        if (resolved.Chat is Channel channel && channel.IsGroup)
-                        {
-                            var groupId = -1000000000000 - channel.id;
-                            joinedGroupIds.Add(groupId);
-                            Logger.Information("  ✅ 公开群组: {Title}", channel.title);
-                            successCount++;
-                        }
-                        await Task.Delay(2000); // 延迟2秒
-                        continue;
-                    }
-
-                    if (!string.IsNullOrEmpty(inviteHash))
-                    {
-                        // 检查邀请链接
-                        var chatInvite = await _client.Messages_CheckChatInvite(inviteHash);
-                        
-                        if (chatInvite is ChatInvite invite)
-                        {
-                            // 还未加入，尝试加入
-                            Logger.Information("  🔗 正在加入: {Title}...", invite.title);
-                            var updates = await _client.Messages_ImportChatInvite(inviteHash);
-                            
-                            // 从更新中提取群组 ID
-                            if (updates.Chats.Count > 0)
-                            {
-                                var chat = updates.Chats.Values.First();
-                                long groupId = 0;
-                                string? title = null;
-                                
-                                if (chat is Channel channel)
-                                {
-                                    groupId = -1000000000000 - channel.id;
-                                    title = channel.title;
-                                }
-                                else if (chat is Chat groupChat)
-                                {
-                                    groupId = -groupChat.id;
-                                    title = groupChat.title;
-                                }
-                                
-                                if (groupId != 0)
-                                {
-                                    joinedGroupIds.Add(groupId);
-                                    Logger.Information("  ✅ 成功加入: {Title} (ID: {Id})", title, groupId);
-                                    successCount++;
-                                }
-                            }
-                            
-                            await Task.Delay(3000); // 加入后延迟3秒
-                        }
-                        else if (chatInvite is ChatInviteAlready alreadyJoined)
-                        {
-                            // 已经加入
-                            var chat = alreadyJoined.chat;
-                            long groupId = 0;
-                            string? title = null;
-                            
-                            if (chat is Channel channel)
-                            {
-                                groupId = -1000000000000 - channel.id;
-                                title = channel.title;
-                            }
-                            else if (chat is Chat groupChat)
-                            {
-                                groupId = -groupChat.id;
-                                title = groupChat.title;
-                            }
-                            
-                            if (groupId != 0)
-                            {
-                                joinedGroupIds.Add(groupId);
-                                Logger.Information("  ℹ️  已在群组: {Title} (ID: {Id})", title, groupId);
-                                alreadyCount++;
-                            }
-                            
-                            await Task.Delay(1000); // 已加入延迟1秒
-                        }
-else
-                    {
-                            Logger.Warning("  ❌ 邀请链接无效或已过期");
-                            failCount++;
-                            await Task.Delay(1000);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning("  ❌ 失败: {Error}", ex.Message);
-                    failCount++;
-                    await Task.Delay(2000); // 失败后延迟2秒
-                }
-            }
-            
-            Logger.Information("✅ 群组处理完成:");
-            Logger.Information("   - 新加入: {New} 个", successCount);
-            Logger.Information("   - 已在群: {Already} 个", alreadyCount);
-            Logger.Information("   - 失败: {Fail} 个", failCount);
-            Logger.Information("   - 总计: {Total} 个白名单群组", joinedGroupIds.Count);
-        }
-
-        // ⚠️ 重要：重新获取对话列表，包含新加入的群组
-        if (joinedGroupIds.Any())
-        {
-            Logger.Information("🔄 重新获取对话列表（包含新加入的群组）...");
-            dialogs = await _client.Messages_GetAllDialogs();
-            Logger.Information("✅ 已获取 {Count} 个对话", dialogs.dialogs.Length);
-        }
-
-        // 筛选群组并同步到服务器
+        // 筛选包含"云顶互娱"的群组
         var targetGroups = new List<GroupSyncDto>();
         
         foreach (var (id, chat) in dialogs.chats)
@@ -353,23 +184,20 @@ else
 
             if (title != null)
             {
-                bool shouldMonitor = false;
-                
-                // 如果有白名单，只监控白名单中的群组
-                if (joinedGroupIds.Any())
-                {
-                    shouldMonitor = joinedGroupIds.Contains(groupId);
-                }
-                else
-                {
-                    // 没有白名单，监控所有包含"公群"或"扫雷"的群组（降级方案）
-                    shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
-                }
+                // 只监控包含"云顶互娱"的群组
+                bool shouldMonitor = title.Contains("云顶互娱");
                 
                 if (shouldMonitor)
                 {
-                    Logger.Information("✅ 监控群组: {Title} (ID: {Id})", title, groupId);
-                    targetGroups.Add(new GroupSyncDto { GroupId = groupId, Title = title });
+                    // 生成群链接（公开群组使用 username）
+                    string? groupLink = null;
+                    if (!string.IsNullOrEmpty(username))
+                    {
+                        groupLink = $"https://t.me/{username}";
+                    }
+                    
+                    Logger.Information("✅ 监控群组: {Title} (ID: {Id}, Link: {Link})", title, groupId, groupLink ?? "无");
+                    targetGroups.Add(new GroupSyncDto { GroupId = groupId, Title = title, GroupLink = groupLink });
                     
                     // 添加到监控列表
                     _monitorGroups[groupId] = title;

@@ -28,6 +28,11 @@ public class PushMessageDto
     public string? GroupUsername { get; set; }
 
     /// <summary>
+    /// 群组链接（如 https://t.me/yundinghuyule1）
+    /// </summary>
+    public string? GroupLink { get; set; }
+
+    /// <summary>
     /// 消息 ID（用于生成链接）
     /// </summary>
     public long MessageId { get; set; }
@@ -111,12 +116,8 @@ public class PushMessageDto
             ? string.Join(" ", RecentNumbers.Take(maxPeriods).Select(n => n.ToString()))
             : "";
 
-        // 生成群链接
-        var groupLink = "";
-        if (!string.IsNullOrEmpty(GroupUsername) && MessageId > 0)
-        {
-            groupLink = $"\n链接：https://t.me/{GroupUsername}/{MessageId}";
-        }
+        // 生成群链接(直接使用 GroupLink)
+        var groupLink = !string.IsNullOrEmpty(GroupLink) ? $"\n链接：{GroupLink}" : "";
 
         // 触发详情
         var triggerDetails = "";
@@ -129,7 +130,7 @@ public class PushMessageDto
         }
 
         return $"""
-            【好路提醒】
+            云顶互娱
             时间：{timeStr}
             群组：{GroupName}
             类型：{typeDesc}

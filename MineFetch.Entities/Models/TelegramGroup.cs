@@ -26,6 +26,11 @@ public class TelegramGroup
     public bool IsActive { get; set; } = true;
 
     /// <summary>
+    /// 群组链接（如 https://t.me/yundinghuyule1）
+    /// </summary>
+    public string? GroupLink { get; set; }
+
+    /// <summary>
     /// 创建时间（UTC）
     /// </summary>
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

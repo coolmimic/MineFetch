@@ -154,6 +154,7 @@ public class RuleEngine
             GroupId = result.GroupId,
             GroupName = group.Title ?? $"群组 {result.GroupId}",
             GroupUsername = group.Username,
+            GroupLink = group.GroupLink,
             MessageId = result.MessageId,
             PeriodId = result.PeriodId,
             DiceNumber = result.DiceNumber,

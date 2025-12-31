@@ -46,20 +46,26 @@ public class GroupsController : ControllerBase
                 {
                     Id = dto.GroupId,
                     Title = dto.Title,
+                    GroupLink = dto.GroupLink,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow
                 };
                 _dbContext.TelegramGroups.Add(group);
                 inserted++;
-                _logger.LogInformation("新增群组: {Title} (ID: {GroupId})", dto.Title, dto.GroupId);
+                _logger.LogInformation("新增群组: {Title} (ID: {GroupId}, Link: {Link})", dto.Title, dto.GroupId, dto.GroupLink ?? "无");
             }
-            else if (existing.Title != dto.Title)
+            else
             {
-                // 更新群组名称
-                existing.Title = dto.Title;
-                existing.UpdatedAt = DateTime.UtcNow;
-                updated++;
-                _logger.LogInformation("更新群组: {Title} (ID: {GroupId})", dto.Title, dto.GroupId);
+                // 更新群组（名称或链接变化时更新）
+                var hasChange = existing.Title != dto.Title || existing.GroupLink != dto.GroupLink;
+                if (hasChange)
+                {
+                    existing.Title = dto.Title;
+                    existing.GroupLink = dto.GroupLink;
+                    existing.UpdatedAt = DateTime.UtcNow;
+                    updated++;
+                    _logger.LogInformation("更新群组: {Title} (ID: {GroupId}, Link: {Link})", dto.Title, dto.GroupId, dto.GroupLink ?? "无");
+                }
             }
         }
 
@@ -86,6 +92,7 @@ public class GroupsController : ControllerBase
             {
                 id = g.Id,
                 title = g.Title,
+                groupLink = g.GroupLink,
                 isActive = g.IsActive,
                 createdAt = g.CreatedAt
             })
