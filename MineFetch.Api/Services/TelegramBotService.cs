@@ -167,7 +167,7 @@ public class TelegramBotService
         }
     }
 
-    private async Task HandleDeleteSettingAsync(long userId, long chatId, CancellationToken cancellationToken)
+    private async Task HandleDeleteSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
     {
         if (!int.TryParse(args.Trim(), out var settingId))
         {
