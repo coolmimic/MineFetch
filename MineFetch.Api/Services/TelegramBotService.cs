@@ -102,7 +102,10 @@ public class TelegramBotService
             任何玩法达到阈值即推送提醒
             """;
 
-        await _botClient.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: cancellationToken);
+        // 移除底部菜单，只显示内联按钮
+        await _botClient.SendMessage(chatId, text, 
+            replyMarkup: keyboard, 
+            cancellationToken: cancellationToken);
     }
 
     private async Task ShowThresholdSettings(long chatId, long userId, CancellationToken cancellationToken)
