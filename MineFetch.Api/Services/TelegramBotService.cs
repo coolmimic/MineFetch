@@ -65,42 +65,40 @@ public class TelegramBotService
         // 确保用户已注册
         await EnsureUserExistsAsync(message.From!, chatId, cancellationToken);
 
-        // 处理命令
-        var command = text.Split(' ')[0].ToLower();
-        var args = text.Length > command.Length ? text[(command.Length + 1)..].Trim() : "";
+        // 创建固定菜单键盘
+        var menuKeyboard = new ReplyKeyboardMarkup(new[]
+        {
+            new KeyboardButton[] { new("➕ 添加规则"), new("📋 我的规则") },
+            new KeyboardButton[] { new("❓ 使用帮助") }
+        })
+        {
+            ResizeKeyboard = true,
+            IsPersistent = true
+        };
 
-        switch (command)
+        // 处理按钮点击
+        switch (text)
         {
             case "/start":
-                await HandleStartAsync(chatId, cancellationToken);
+            case "🏠 主页":
+                await HandleStartAsync(chatId, menuKeyboard, cancellationToken);
                 break;
-            case "/help":
-                await HandleHelpAsync(chatId, cancellationToken);
+            case "➕ 添加规则":
+                await HandleAddSettingAsync(userId, chatId, "", cancellationToken);
                 break;
-            case "/settings":
-            case "/list":
+            case "📋 我的规则":
                 await HandleListSettingsAsync(userId, chatId, cancellationToken);
                 break;
-            case "/add":
-                // 兼容旧的参数输入方式，如果带参数则尝试解析，否则显示菜单
-                if (!string.IsNullOrEmpty(args))
-                {
-                    await HandleManualAddAsync(userId, chatId, args, cancellationToken);
-                }
-                else
-                {
-                    await HandleAddSettingAsync(userId, chatId, args, cancellationToken);
-                }
-                break;
-            case "/del":
-                await HandleDeleteSettingAsync(userId, chatId, args, cancellationToken);
+            case "❓ 使用帮助":
+                await HandleHelpAsync(chatId, cancellationToken);
                 break;
             default:
+                // 忽略其他消息
                 break;
         }
     }
 
-    private async Task HandleStartAsync(long chatId, CancellationToken cancellationToken)
+    private async Task HandleStartAsync(long chatId, IReplyMarkup? replyMarkup, CancellationToken cancellationToken)
     {
         var text = """
             👋 欢迎使用扫雷数据采集助手！
@@ -108,14 +106,7 @@ public class TelegramBotService
             🤖 我会自动监控所有群组的开奖结果。
             """;
 
-        var keyboard = new InlineKeyboardMarkup(new[]
-        {
-            new[] { InlineKeyboardButton.WithCallbackData("➕ 添加规则", "cmd_add") },
-            new[] { InlineKeyboardButton.WithCallbackData("📋 我的规则", "cmd_list") },
-            new[] { InlineKeyboardButton.WithCallbackData("❓ 使用帮助", "cmd_help") }
-        });
-
-        await _botClient.SendMessage(chatId, text, replyMarkup: keyboard, cancellationToken: cancellationToken);
+        await _botClient.SendMessage(chatId, text, replyMarkup: replyMarkup, cancellationToken: cancellationToken);
     }
 
     private async Task HandleHelpAsync(long chatId, CancellationToken cancellationToken)
@@ -123,18 +114,19 @@ public class TelegramBotService
         var text = """
             📖 使用帮助
 
-            1️⃣ **添加规则**
-            发送 /add 命令，通过按钮选择玩法、类型和期数。
-            - 遗漏：连续 N 期未出现
-            - 连开：连续出现 N 期
-
-            2️⃣ **管理规则**
-            发送 /list 查看已添加的规则及其 ID。
-            发送 `/del ID` 删除对应规则。
+            📍 点击底部菜单按钮操作：
+            
+            ➕ **添加规则**
+            选择玩法类型，设置触发期数。
+            
+            📋 **我的规则**
+            查看已设置的规则，点击删除按钮可移除。
 
             💡 **玩法说明**
             🔴 大 (4-6) | 🔵 小 (1-3)
             🟢 单 (1,3,5) | 🟡 双 (2,4,6)
+            🧩 组合玩法: 大单、大双、小单、小双
+            🐉 花龙: 大小或单双交替出现
             """;
 
         await _botClient.SendMessage(chatId, text, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
@@ -201,24 +193,55 @@ public class TelegramBotService
 
         if (!settings.Any())
         {
+            var emptyKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[] { InlineKeyboardButton.WithCallbackData("➕ 添加规则", "cmd_add") }
+            });
+
             await _botClient.SendMessage(chatId, 
-                "📭 你还没有设置任何推送规则\n\n使用 /add 添加规则", 
+                "📭 你还没有设置任何推送规则", 
+                replyMarkup: emptyKeyboard,
                 cancellationToken: cancellationToken);
             return;
         }
 
-        var lines = new List<string> { "📋 我的推送规则：", "" };
+        // 为每个规则创建一行（规则描述 + 删除按钮）
+        var buttons = new List<InlineKeyboardButton[]>();
+        
         foreach (var s in settings)
         {
             var status = s.IsEnabled ? "✅" : "❌";
-            lines.Add($"{status} [ID:{s.Id}] {s.Group?.Title ?? "未知群组"}");
+            var groupName = s.GroupId == null ? "所有群" : (s.Group?.Title ?? "未知群组");
+            var ruleText = $"{status} {groupName} - {s.GetDescription()}";
+            
+            // 每行两个按钮：规则描述（占位）、删除按钮
+            buttons.Add(new[]
+            {
+                InlineKeyboardButton.WithCallbackData($"🗑️ 删除 #{s.Id}", $"del_{s.Id}")
+            });
+        }
+
+        // 添加底部按钮
+        buttons.Add(new[] { InlineKeyboardButton.WithCallbackData("➕ 添加新规则", "cmd_add") });
+
+        var keyboard = new InlineKeyboardMarkup(buttons);
+
+        // 构建规则列表文本
+        var lines = new List<string> { "📋 *我的推送规则*", "" };
+        foreach (var s in settings)
+        {
+            var status = s.IsEnabled ? "✅" : "❌";
+            var groupName = s.GroupId == null ? "所有群" : (s.Group?.Title ?? "未知群组");
+            lines.Add($"{status} *#{s.Id}* {groupName}");
             lines.Add($"   {s.GetDescription()}");
             lines.Add("");
         }
 
-        lines.Add("使用 /del ID 删除规则");
-
-        await _botClient.SendMessage(chatId, string.Join("\n", lines), cancellationToken: cancellationToken);
+        await _botClient.SendMessage(chatId, 
+            string.Join("\n", lines),
+            parseMode: ParseMode.Markdown,
+            replyMarkup: keyboard,
+            cancellationToken: cancellationToken);
     }
 
     private async Task HandleAddSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
@@ -295,6 +318,28 @@ public class TelegramBotService
                     cancellationToken: cancellationToken);
                     
                 await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            }
+            // 删除规则
+            else if (data.StartsWith("del_"))
+            {
+                var settingId = int.Parse(data.Split('_')[1]);
+                
+                var setting = await _dbContext.UserSettings
+                    .FirstOrDefaultAsync(s => s.Id == settingId && s.UserId == userId, cancellationToken);
+
+                if (setting != null)
+                {
+                    _dbContext.UserSettings.Remove(setting);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+
+                    // 删除后刷新规则列表
+                    await HandleListSettingsAsync(userId, chatId, cancellationToken);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "✅ 规则已删除", cancellationToken: cancellationToken);
+                }
+                else
+                {
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "❌ 规则不存在", showAlert: true, cancellationToken: cancellationToken);
+                }
             }
             // 步骤 3: 保存规则
             else if (data.StartsWith("step3_"))
