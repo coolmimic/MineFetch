@@ -43,11 +43,11 @@ public class RuleEngine
             return;
         }
 
-        // 获取订阅该群组的所有用户设置
+        // 获取订阅该群组的所有用户设置（包括全局规则 GroupId = 0）
         var settings = await _dbContext.UserSettings
             .Include(s => s.User)
             .Include(s => s.Group)
-            .Where(s => s.GroupId == result.GroupId && s.IsEnabled)
+            .Where(s => (s.GroupId == result.GroupId || s.GroupId == 0) && s.IsEnabled)
             .ToListAsync(cancellationToken);
 
         if (!settings.Any())

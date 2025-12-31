@@ -82,16 +82,20 @@ public class TelegramBotService
                 await HandleListSettingsAsync(userId, chatId, cancellationToken);
                 break;
             case "/add":
-                await HandleAddSettingAsync(userId, chatId, args, cancellationToken);
+                // 兼容旧的参数输入方式，如果带参数则尝试解析，否则显示菜单
+                if (!string.IsNullOrEmpty(args))
+                {
+                    await HandleManualAddAsync(userId, chatId, args, cancellationToken);
+                }
+                else
+                {
+                    await HandleAddSettingAsync(userId, chatId, args, cancellationToken);
+                }
                 break;
             case "/del":
                 await HandleDeleteSettingAsync(userId, chatId, args, cancellationToken);
                 break;
-            case "/groups":
-                await HandleListGroupsAsync(chatId, cancellationToken);
-                break;
             default:
-                // 忽略非命令消息
                 break;
         }
     }
@@ -101,23 +105,13 @@ public class TelegramBotService
         var text = """
             👋 欢迎使用扫雷数据采集助手！
 
-            我可以帮你监控扫雷游戏的开奖结果，并在满足条件时推送提醒。
+            🤖 我会自动监控所有群组的开奖结果。
 
-            📋 可用命令：
-            /help - 查看帮助
-            /groups - 查看可监控的群组
-            /list - 查看我的推送规则
-            /add - 添加推送规则
-            /del - 删除推送规则
-
-            📖 快速开始：
-            1. 使用 /groups 查看可监控的群组
-            2. 使用 /add 命令添加规则
-               格式：/add 群组ID 规则类型 投注类型 阈值
-               例如：/add -1001234567890 连开 大 5
-
-            规则类型：遗漏、连开
-            投注类型：大、小、单、双
+            📋 常用命令：
+            /add - 添加推送规则（按钮操作）
+            /list - 查看我的规则
+            /del - 删除规则
+            /help - 查看帮助文档
             """;
 
         await _botClient.SendMessage(chatId, text, cancellationToken: cancellationToken);
@@ -128,57 +122,72 @@ public class TelegramBotService
         var text = """
             📖 使用帮助
 
-            🎯 推送规则说明：
-            - 遗漏：当某个类型连续 N 期未出现时推送
-            - 连开：当某个类型连续出现 N 期时推送
+            1️⃣ **添加规则**
+            发送 /add 命令，通过按钮选择玩法、类型和期数。
+            - 遗漏：连续 N 期未出现
+            - 连开：连续出现 N 期
 
-            📝 添加规则示例：
-            /add -1001234567890 连开 大 5
-            → 当「大」连续出现 5 期时推送
+            2️⃣ **管理规则**
+            发送 /list 查看已添加的规则及其 ID。
+            发送 `/del ID` 删除对应规则。
 
-            /add -1001234567890 遗漏 小 8
-            → 当「小」连续 8 期未出现时推送
-
-            🗑️ 删除规则：
-            /del 规则ID
-            → 使用 /list 查看规则 ID
-
-            💡 投注类型：
-            - 大：4, 5, 6
-            - 小：1, 2, 3
-            - 单：1, 3, 5
-            - 双：2, 4, 6
+            💡 **玩法说明**
+            🔴 大 (4-6) | 🔵 小 (1-3)
+            🟢 单 (1,3,5) | 🟡 双 (2,4,6)
             """;
 
-        await _botClient.SendMessage(chatId, text, cancellationToken: cancellationToken);
+        await _botClient.SendMessage(chatId, text, parseMode: ParseMode.Markdown, cancellationToken: cancellationToken);
     }
 
-    private async Task HandleListGroupsAsync(long chatId, CancellationToken cancellationToken)
+    /// <summary>
+    /// 手动添加规则 (兼容自定义输入用)
+    /// Args: Big Consecutive 10
+    /// </summary>
+    private async Task HandleManualAddAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
     {
-        var groups = await _dbContext.TelegramGroups
-            .Where(g => g.IsActive)
-            .OrderBy(g => g.Title)
-            .ToListAsync(cancellationToken);
-
-        if (!groups.Any())
+        var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        // /add Big Consecutive 10
+        if (parts.Length < 3)
         {
-            await _botClient.SendMessage(chatId, "❌ 暂无可监控的群组", cancellationToken: cancellationToken);
+             await _botClient.SendMessage(chatId, "⚠️ 格式错误，建议直接发送 /add 使用按钮添加", cancellationToken: cancellationToken);
+             return;
+        }
+
+        if (int.TryParse(parts[2], out var threshold))
+        {
+            try 
+            {
+                await SaveRuleAsync(userId, chatId, parts[0], parts[1], threshold, cancellationToken);
+            }
+            catch
+            {
+                await _botClient.SendMessage(chatId, "⚠️ 参数无效", cancellationToken: cancellationToken);
+            }
+        }
+    }
+
+    private async Task HandleDeleteSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
+    {
+        if (!int.TryParse(args.Trim(), out var settingId))
+        {
+            await _botClient.SendMessage(chatId, "❌ 请提供有效的规则 ID\n\n使用 /list 查看规则 ID",
+                cancellationToken: cancellationToken);
             return;
         }
 
-        var lines = new List<string> { "📋 可监控的群组：", "" };
-        foreach (var group in groups)
+        var setting = await _dbContext.UserSettings
+            .FirstOrDefaultAsync(s => s.Id == settingId && s.UserId == userId, cancellationToken);
+
+        if (setting == null)
         {
-            lines.Add($"• {group.Title}");
-            lines.Add($"  ID: `{group.Id}`");
-            lines.Add("");
+            await _botClient.SendMessage(chatId, "❌ 规则不存在", cancellationToken: cancellationToken);
+            return;
         }
 
-        await _botClient.SendMessage(
-            chatId, 
-            string.Join("\n", lines), 
-            parseMode: ParseMode.Markdown,
-            cancellationToken: cancellationToken);
+        _dbContext.UserSettings.Remove(setting);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        await _botClient.SendMessage(chatId, "✅ 规则已删除", cancellationToken: cancellationToken);
     }
 
     private async Task HandleListSettingsAsync(long userId, long chatId, CancellationToken cancellationToken)
@@ -213,93 +222,143 @@ public class TelegramBotService
 
     private async Task HandleAddSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
     {
-        // 解析参数：群组ID 规则类型 投注类型 阈值
-        var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        
-        if (parts.Length < 4)
+        // 步骤 1: 选择玩法
+        var keyboard = new InlineKeyboardMarkup(new[]
         {
-            await _botClient.SendMessage(chatId,
-                "❌ 参数不正确\n\n格式：/add 群组ID 规则类型 投注类型 阈值\n例如：/add -1001234567890 连开 大 5",
-                cancellationToken: cancellationToken);
-            return;
-        }
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🔴 大 (4-6)", "step1_Big"),
+                InlineKeyboardButton.WithCallbackData("🔵 小 (1-3)", "step1_Small"),
+            },
+            new[]
+            {
+                InlineKeyboardButton.WithCallbackData("🟢 单 (1,3,5)", "step1_Odd"),
+                InlineKeyboardButton.WithCallbackData("🟡 双 (2,4,6)", "step1_Even"),
+            }
+        });
 
-        if (!long.TryParse(parts[0], out var groupId))
+        await _botClient.SendMessage(chatId, 
+            "🔢 *第一步：请选择监控玩法*", 
+            parseMode: ParseMode.Markdown,
+            replyMarkup: keyboard,
+            cancellationToken: cancellationToken);
+    }
+
+    private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, CancellationToken cancellationToken)
+    {
+        var data = callbackQuery.Data;
+        var chatId = callbackQuery.Message?.Chat.Id ?? 0;
+        var userId = callbackQuery.From.Id;
+
+        if (string.IsNullOrEmpty(data)) return;
+
+        try
         {
-            await _botClient.SendMessage(chatId, "❌ 群组 ID 无效", cancellationToken: cancellationToken);
-            return;
-        }
+            // 处理步骤 1: 选择玩法 -> 进入步骤 2 (选择规则类型)
+            if (data.StartsWith("step1_"))
+            {
+                var betType = data.Split('_')[1];
+                var keyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData("🔥 连开 (连续出现)", $"step2_{betType}_Consecutive"),
+                        InlineKeyboardButton.WithCallbackData("❄️ 遗漏 (连续未出)", $"step2_{betType}_Missing"),
+                    }
+                });
 
-        // 检查群组是否存在
-        var group = await _dbContext.TelegramGroups.FindAsync([groupId], cancellationToken);
-        if (group == null)
+                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                    $"已选择：{GetBetTypeName(betType)}\n\n📋 *第二步：请选择规则类型*",
+                    parseMode: ParseMode.Markdown,
+                    replyMarkup: keyboard,
+                    cancellationToken: cancellationToken);
+            }
+            // 处理步骤 2: 选择规则类型 -> 进入步骤 3 (选择期数)
+            else if (data.StartsWith("step2_"))
+            {
+                var parts = data.Split('_');
+                var betType = parts[1];
+                var ruleType = parts[2];
+                var prefix = $"step3_{betType}_{ruleType}_";
+
+                var keyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new[] 
+                    { 
+                        InlineKeyboardButton.WithCallbackData("3 期", prefix + "3"),
+                        InlineKeyboardButton.WithCallbackData("5 期", prefix + "5"),
+                        InlineKeyboardButton.WithCallbackData("8 期", prefix + "8")
+                    },
+                    new[] 
+                    { 
+                        InlineKeyboardButton.WithCallbackData("10 期", prefix + "10"),
+                        InlineKeyboardButton.WithCallbackData("15 期", prefix + "15"),
+                        InlineKeyboardButton.WithCallbackData("20 期", prefix + "20")
+                    },
+                    new[] { InlineKeyboardButton.WithCallbackData("✏️ 自定义期数", prefix + "custom") }
+                });
+
+                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                    $"已选择：{GetBetTypeName(betType)} -> {GetRuleTypeName(ruleType)}\n\n⏱️ *第三步：请选择触发期数*",
+                    parseMode: ParseMode.Markdown,
+                    replyMarkup: keyboard,
+                    cancellationToken: cancellationToken);
+            }
+            // 处理步骤 3: 保存规则
+            else if (data.StartsWith("step3_"))
+            {
+                var parts = data.Split('_');
+                var betTypeStr = parts[1];
+                var ruleTypeStr = parts[2];
+                var valStr = parts[3];
+
+                if (valStr == "custom")
+                {
+                    // 自定义输入提示
+                    await _botClient.SendMessage(chatId, 
+                        $"请输入自定义期数（格式：`/add {betTypeStr} {ruleTypeStr} 数字`）\n" +
+                        $"例如：`/add {betTypeStr} {ruleTypeStr} 12`",
+                        parseMode: ParseMode.Markdown,
+                        cancellationToken: cancellationToken);
+                    
+                    // 也可以考虑使用 UserState 来记录状态等待用户通过文本输入，这里简单起见让用户用命令补全
+                    return; 
+                }
+
+                if (int.TryParse(valStr, out var threshold))
+                {
+                    await SaveRuleAsync(userId, chatId, betTypeStr, ruleTypeStr, threshold, cancellationToken);
+                    
+                    // 删除原来的按钮消息
+                    await _botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
+                }
+            }
+        }
+        catch (Exception ex)
         {
-            await _botClient.SendMessage(chatId, "❌ 群组不存在或未启用", cancellationToken: cancellationToken);
-            return;
+            _logger.LogError(ex, "处理回调查询异常");
+            await _botClient.AnswerCallbackQuery(callbackQuery.Id, "操作失败，请重试", cancellationToken: cancellationToken);
         }
+    }
 
-        // 解析规则类型
-        RuleType ruleType;
-        switch (parts[1])
-        {
-            case "遗漏":
-            case "missing":
-                ruleType = RuleType.Missing;
-                break;
-            case "连开":
-            case "consecutive":
-                ruleType = RuleType.Consecutive;
-                break;
-            default:
-                await _botClient.SendMessage(chatId, "❌ 规则类型无效，请使用：遗漏、连开", cancellationToken: cancellationToken);
-                return;
-        }
+    private async Task SaveRuleAsync(long userId, long chatId, string betTypeStr, string ruleTypeStr, int threshold, CancellationToken cancellationToken)
+    {
+        var betType = Enum.Parse<BetType>(betTypeStr);
+        var ruleType = Enum.Parse<RuleType>(ruleTypeStr);
+        long groupId = 0; // 全局规则
 
-        // 解析投注类型
-        BetType betType;
-        switch (parts[2])
-        {
-            case "大":
-            case "big":
-                betType = BetType.Big;
-                break;
-            case "小":
-            case "small":
-                betType = BetType.Small;
-                break;
-            case "单":
-            case "odd":
-                betType = BetType.Odd;
-                break;
-            case "双":
-            case "even":
-                betType = BetType.Even;
-                break;
-            default:
-                await _botClient.SendMessage(chatId, "❌ 投注类型无效，请使用：大、小、单、双", cancellationToken: cancellationToken);
-                return;
-        }
-
-        // 解析阈值
-        if (!int.TryParse(parts[3], out var threshold) || threshold < 1 || threshold > 100)
-        {
-            await _botClient.SendMessage(chatId, "❌ 阈值无效，请使用 1-100 之间的数字", cancellationToken: cancellationToken);
-            return;
-        }
-
-        // 检查是否已存在相同规则
+        // 检查是否已存在
         var exists = await _dbContext.UserSettings
             .AnyAsync(s => s.UserId == userId && s.GroupId == groupId && 
-                          s.RuleType == ruleType && s.BetType == betType, 
+                           s.RuleType == ruleType && s.BetType == betType && s.Threshold == threshold, 
                       cancellationToken);
 
         if (exists)
         {
-            await _botClient.SendMessage(chatId, "❌ 已存在相同的规则", cancellationToken: cancellationToken);
+            await _botClient.SendMessage(chatId, "⚠️ 该规则已存在，无需重复添加", cancellationToken: cancellationToken);
             return;
         }
 
-        // 创建规则
         var setting = new UserSetting
         {
             UserId = userId,
@@ -314,39 +373,25 @@ public class TelegramBotService
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         await _botClient.SendMessage(chatId,
-            $"✅ 规则添加成功！\n\n群组：{group.Title}\n规则：{setting.GetDescription()}",
+            $"✅ *规则添加成功！*\n\n" +
+            $"监控：所有群\n" +
+            $"玩法：{GetBetTypeName(betTypeStr)}\n" +
+            $"类型：{GetRuleTypeName(ruleTypeStr)}\n" +
+            $"阈值：{threshold} 期",
+            parseMode: ParseMode.Markdown,
             cancellationToken: cancellationToken);
     }
 
-    private async Task HandleDeleteSettingAsync(long userId, long chatId, string args, CancellationToken cancellationToken)
+    private string GetBetTypeName(string type) => type switch
     {
-        if (!int.TryParse(args.Trim(), out var settingId))
-        {
-            await _botClient.SendMessage(chatId, "❌ 请提供有效的规则 ID\n\n使用 /list 查看规则 ID",
-                cancellationToken: cancellationToken);
-            return;
-        }
+        "Big" => "🔴 大", "Small" => "🔵 小", 
+        "Odd" => "🟢 单", "Even" => "🟡 双", _ => type
+    };
 
-        var setting = await _dbContext.UserSettings
-            .FirstOrDefaultAsync(s => s.Id == settingId && s.UserId == userId, cancellationToken);
-
-        if (setting == null)
-        {
-            await _botClient.SendMessage(chatId, "❌ 规则不存在", cancellationToken: cancellationToken);
-            return;
-        }
-
-        _dbContext.UserSettings.Remove(setting);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _botClient.SendMessage(chatId, "✅ 规则已删除", cancellationToken: cancellationToken);
-    }
-
-    private async Task HandleCallbackQueryAsync(CallbackQuery callbackQuery, CancellationToken cancellationToken)
+    private string GetRuleTypeName(string type) => type switch
     {
-        // 暂时不处理回调查询
-        await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
-    }
+        "Consecutive" => "🔥 连开", "Missing" => "❄️ 遗漏", _ => type
+    };
 
     private async Task EnsureUserExistsAsync(Telegram.Bot.Types.User telegramUser, long chatId, CancellationToken cancellationToken)
     {
