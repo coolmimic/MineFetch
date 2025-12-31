@@ -98,7 +98,7 @@ public class TelegramBotService
         }
     }
 
-    private async Task HandleStartAsync(long chatId, IReplyMarkup? replyMarkup, CancellationToken cancellationToken)
+    private async Task HandleStartAsync(long chatId, ReplyKeyboardMarkup? replyMarkup, CancellationToken cancellationToken)
     {
         var text = """
             👋 欢迎使用扫雷数据采集助手！
