@@ -207,22 +207,23 @@ public class RuleEngine
     }
 
     /// <summary>
-    /// 计算花龙连开期数
+    /// 计算花龙组数
     /// 定义：连续的单跳（如 大-小-大-小 或 单-双-单-双）
+    /// 返回组数：2期为1组，例如 大-小-大-小-大-小-大-小-大-小 = 10期 = 5组
     /// </summary>
     private int CalculateDragonCount(List<LotteryResult> results)
     {
         if (results.Count < 2) return 0;
 
-        // 计算大小花龙
-        int bsDragon = 1;
+        // 计算大小花龙（期数）
+        int bsPeriods = 1;
         bool? lastIsBig = IsBig(results[0].DiceNumber);
         for (int i = 1; i < results.Count; i++)
         {
             bool? currentIsBig = IsBig(results[i].DiceNumber);
             if (currentIsBig != lastIsBig) // 发生跳变
             {
-                bsDragon++;
+                bsPeriods++;
                 lastIsBig = currentIsBig;
             }
             else
@@ -231,15 +232,15 @@ public class RuleEngine
             }
         }
 
-        // 计算单双花龙
-        int oeDragon = 1;
+        // 计算单双花龙（期数）
+        int oePeriods = 1;
         bool? lastIsOdd = IsOdd(results[0].DiceNumber);
         for (int i = 1; i < results.Count; i++)
         {
             bool? currentIsOdd = IsOdd(results[i].DiceNumber);
             if (currentIsOdd != lastIsOdd) // 发生跳变
             {
-                oeDragon++;
+                oePeriods++;
                 lastIsOdd = currentIsOdd;
             }
             else
@@ -248,10 +249,9 @@ public class RuleEngine
             }
         }
 
-        // 只要满足一种花龙，取最大值
-        // 但要注意：如果只有1期，不能叫花龙（没跳），至少要2期才算跳
-        // 实际上单期也可以算作花龙的起点，但为了推送意义，阈值通常>1
-        return Math.Max(bsDragon, oeDragon);
+        // 取最大期数，然后换算成组数（2期=1组）
+        int maxPeriods = Math.Max(bsPeriods, oePeriods);
+        return maxPeriods / 2; // 返回组数
     }
 
     private bool IsBig(int n) => n >= 4;
