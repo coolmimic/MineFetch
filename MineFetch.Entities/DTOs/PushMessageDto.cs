@@ -116,17 +116,16 @@ public class PushMessageDto
             ? string.Join(" ", RecentNumbers.Take(maxPeriods).Select(n => n.ToString()))
             : "";
 
-        // 生成群链接(直接使用 GroupLink)
-        var groupLink = !string.IsNullOrEmpty(GroupLink) ? $"\n链接：{GroupLink}" : "";
-
-        // 触发详情
-        var triggerDetails = "";
-        if (TriggeredBetTypes.Any())
+        // 生成群链接(带消息ID)
+        var groupLink = "";
+        if (!string.IsNullOrEmpty(GroupLink) && MessageId > 0)
         {
-            var details = TriggeredBetTypes
-                .Select(t => $"{t.Type.ToChineseName()}：{t.Count} 把")
-                .ToList();
-            triggerDetails = "\n\n触发详情：\n" + string.Join("\n", details);
+            var username = GroupLink.Replace("https://t.me/", "");
+            groupLink = $"\n链接：https://t.me/{username}/{MessageId}";
+        }
+        else if (!string.IsNullOrEmpty(GroupLink))
+        {
+            groupLink = $"\n链接：{GroupLink}";
         }
 
         return $"""
@@ -135,7 +134,7 @@ public class PushMessageDto
             群组：{GroupName}
             类型：{typeDesc}
             连续：{maxPeriods} 把
-            最近{maxPeriods}把：{recentStr}{groupLink}{triggerDetails}
+            最近{maxPeriods}把：{recentStr}{groupLink}
             """;
     }
 }
