@@ -252,14 +252,17 @@ public class TelegramBotService
             if (data == "cmd_add")
             {
                 await HandleAddSettingAsync(userId, chatId, "", cancellationToken);
+                await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             }
             else if (data == "cmd_list")
             {
                 await HandleListSettingsAsync(userId, chatId, cancellationToken);
+                await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             }
             else if (data == "cmd_help")
             {
                 await HandleHelpAsync(chatId, cancellationToken);
+                await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             }
             // 步骤 1: 选择玩法组 -> 直接进入 (选择期数)
             else if (data.StartsWith("cat_"))
@@ -271,9 +274,9 @@ public class TelegramBotService
                 // 根据不同分类显示不同的标题，虽然期数选择是一样的
                 string title = category switch
                 {
-                    "Basic" => "� 大小单双玩法",
+                    "Basic" => "🔴 大小单双玩法",
                     "Combo" => "🧩 组合玩法",
-                    "Dragon" => "� 花龙玩法",
+                    "Dragon" => "🐉 花龙玩法",
                     _ => "未知玩法"
                 };
 
@@ -290,6 +293,8 @@ public class TelegramBotService
                     parseMode: ParseMode.Markdown,
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
+                    
+                await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             }
             // 步骤 3: 保存规则
             else if (data.StartsWith("step3_"))
@@ -306,6 +311,7 @@ public class TelegramBotService
                         $"例如：`/add {category} {ruleTypeStr} 12`",
                         parseMode: ParseMode.Markdown,
                         cancellationToken: cancellationToken);
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
                     return; 
                 }
 
@@ -338,6 +344,8 @@ public class TelegramBotService
                         $"阈值：{threshold} 期",
                         parseMode: ParseMode.Markdown,
                         cancellationToken: cancellationToken);
+                        
+                    await _botClient.AnswerCallbackQuery(callbackQuery.Id, "✅ 规则添加成功", cancellationToken: cancellationToken);
                 }
             }
         }
