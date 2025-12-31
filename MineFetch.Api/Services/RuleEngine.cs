@@ -65,8 +65,8 @@ public class RuleEngine
         
         if (group == null)
         {
-            _logger.LogWarning("群组不存在: {GroupId}", result.GroupId);
-            return;
+            _logger.LogDebug("群组不存在，跳过规则检查: {GroupId}", result.GroupId);
+            return; // 新群组暂时没有用户订阅，正常跳过
         }
 
         // 获取所有启用的用户设置（全局监控）

@@ -168,17 +168,57 @@ public class TelegramCollector : BackgroundService
         var dialogs = await _client.Messages_GetAllDialogs();
         Logger.Information("已获取 {Count} 个对话", dialogs.dialogs.Length);
 
-        // 筛选包含 "公群" 或 "扫雷" 的群组，并同步到服务器
+        // 读取 GroupLink.txt 中的群组链接
+        var groupLinksFile = "GroupLink.txt";
+        var whitelistLinks = new HashSet<string>();
+        
+        if (File.Exists(groupLinksFile))
+        {
+            var lines = File.ReadAllLines(groupLinksFile);
+            foreach (var line in lines)
+            {
+                var trimmed = line.Trim();
+                if (!string.IsNullOrEmpty(trimmed) && trimmed.StartsWith("https://t.me/"))
+                {
+                    whitelistLinks.Add(trimmed);
+                }
+            }
+            Logger.Information("📋 从 GroupLink.txt 读取到 {Count} 个群组链接", whitelistLinks.Count);
+        }
+        else
+        {
+            Logger.Warning("⚠️ 未找到 GroupLink.txt 文件，将监控所有群组");
+        }
+
+        // 尝试加入 GroupLink.txt 中的群组
+        foreach (var link in whitelistLinks)
+        {
+            try
+            {
+                var resolved = await _client.Contacts_ResolveUsername(link);
+                Logger.Information("✅ 已加入群组: {Link}", link);
+                await Task.Delay(1000); // 避免请求过快
+            }
+            catch (Exception ex)
+            {
+                Logger.Debug("加入群组失败 {Link}: {Error}", link, ex.Message);
+            }
+        }
+
+        // 筛选群组并同步到服务器
         var targetGroups = new List<GroupSyncDto>();
+        var whitelistGroupIds = new HashSet<long>();
         
         foreach (var (id, chat) in dialogs.chats)
         {
             string? title = null;
+            string? username = null;
             long groupId = 0;
 
             if (chat is Channel channel && channel.IsGroup)
             {
                 title = channel.title;
+                username = channel.username;
                 groupId = -1000000000000 - channel.id;
             }
             else if (chat is Chat groupChat)
@@ -187,13 +227,46 @@ public class TelegramCollector : BackgroundService
                 groupId = -groupChat.id;
             }
 
-            if (title != null && (title.Contains("公群") || title.Contains("扫雷")))
+            if (title != null)
             {
-                Logger.Information("发现目标群组: {Title} (ID: {Id})", title, groupId);
-                targetGroups.Add(new GroupSyncDto { GroupId = groupId, Title = title });
+                // 如果没有白名单文件，监控所有包含"公群"或"扫雷"的群组
+                bool shouldMonitor = false;
                 
-                // 添加到监控列表
-                _monitorGroups[groupId] = title;
+                if (!whitelistLinks.Any())
+                {
+                    shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
+                }
+                else
+                {
+                    // 有白名单文件，只监控白名单中的群组
+                    // 通过群链接匹配（如果有 username）
+                    if (!string.IsNullOrEmpty(username))
+                    {
+                        var possibleLinks = new[]
+                        {
+                            $"https://t.me/{username}",
+                            $"https://t.me/+{username}"
+                        };
+                        
+                        shouldMonitor = possibleLinks.Any(link => whitelistLinks.Contains(link));
+                    }
+                    
+                    // 如果没有 username，通过群名匹配（兜底方案）
+                    if (!shouldMonitor)
+                    {
+                        shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
+                    }
+                }
+                
+                if (shouldMonitor)
+                {
+                    Logger.Information("✅ 发现目标群组: {Title} (ID: {Id})", title, groupId);
+                    targetGroups.Add(new GroupSyncDto { GroupId = groupId, Title = title });
+                    
+                    // 添加到监控列表
+                    _monitorGroups[groupId] = title;
+                    whitelistGroupIds.Add(groupId);
+                }
             }
         }
 
@@ -205,7 +278,7 @@ public class TelegramCollector : BackgroundService
         }
         else
         {
-            Logger.Warning("未发现包含 '公群' 或 '扫雷' 的群组");
+            Logger.Warning("⚠️ 未发现任何符合条件的群组");
         }
 
         // 在获取完群组信息后再订阅消息
