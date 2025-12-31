@@ -171,6 +171,7 @@ public class TelegramCollector : BackgroundService
         // 读取 GroupLink.txt 中的群组链接
         var groupLinksFile = "GroupLink.txt";
         var whitelistLinks = new HashSet<string>();
+        var joinedGroupIds = new HashSet<long>(); // 记录通过白名单加入的群组 ID
         
         if (File.Exists(groupLinksFile))
         {
@@ -191,23 +192,113 @@ public class TelegramCollector : BackgroundService
         }
 
         // 尝试加入 GroupLink.txt 中的群组
-        foreach (var link in whitelistLinks)
+        if (whitelistLinks.Any())
         {
-            try
+            Logger.Information("🔗 开始加入白名单群组...");
+            var successCount = 0;
+            
+            foreach (var link in whitelistLinks)
             {
-                var resolved = await _client.Contacts_ResolveUsername(link);
-                Logger.Information("✅ 已加入群组: {Link}", link);
-                await Task.Delay(1000); // 避免请求过快
+                try
+                {
+                    // 提取邀请哈希
+                    string inviteHash = "";
+                    if (link.Contains("/+"))
+                    {
+                        inviteHash = link.Split("/+")[1];
+                    }
+                    else if (link.Contains("/joinchat/"))
+                    {
+                        inviteHash = link.Split("/joinchat/")[1];
+                    }
+                    else
+                    {
+                        // 公开频道链接
+                        var username = link.Replace("https://t.me/", "");
+                        var resolved = await _client.Contacts_ResolveUsername(username);
+                        if (resolved.Chat is Channel channel && channel.IsGroup)
+                        {
+                            var groupId = -1000000000000 - channel.id;
+                            joinedGroupIds.Add(groupId);
+                            Logger.Information("✅ 已加入公开群组: {Title}", channel.title);
+                            successCount++;
+                        }
+                        await Task.Delay(500);
+                        continue;
+                    }
+
+                    if (!string.IsNullOrEmpty(inviteHash))
+                    {
+                        // 检查邀请链接
+                        var chatInvite = await _client.Messages_CheckChatInvite(inviteHash);
+                        
+                        if (chatInvite is ChatInvite invite)
+                        {
+                            // 还未加入，尝试加入
+                            var updates = await _client.Messages_ImportChatInvite(inviteHash);
+                            
+                            // 从更新中提取群组 ID
+                            if (updates.Chats.Count > 0)
+                            {
+                                var chat = updates.Chats.Values.First();
+                                long groupId = 0;
+                                
+                                if (chat is Channel channel)
+                                {
+                                    groupId = -1000000000000 - channel.id;
+                                    Logger.Information("✅ 成功加入群组: {Title} (ID: {Id})", channel.title, groupId);
+                                }
+                                else if (chat is Chat groupChat)
+                                {
+                                    groupId = -groupChat.id;
+                                    Logger.Information("✅ 成功加入群组: {Title} (ID: {Id})", groupChat.title, groupId);
+                                }
+                                
+                                if (groupId != 0)
+                                {
+                                    joinedGroupIds.Add(groupId);
+                                    successCount++;
+                                }
+                            }
+                        }
+                        else if (chatInvite is ChatInviteAlready alreadyJoined)
+                        {
+                            // 已经加入
+                            var chat = alreadyJoined.chat;
+                            long groupId = 0;
+                            
+                            if (chat is Channel channel)
+                            {
+                                groupId = -1000000000000 - channel.id;
+                                Logger.Debug("已在群组中: {Title} (ID: {Id})", channel.title, groupId);
+                            }
+                            else if (chat is Chat groupChat)
+                            {
+                                groupId = -groupChat.id;
+                                Logger.Debug("已在群组中: {Title} (ID: {Id})", groupChat.title, groupId);
+                            }
+                            
+                            if (groupId != 0)
+                            {
+                                joinedGroupIds.Add(groupId);
+                                successCount++;
+                            }
+                        }
+                    }
+                    
+                    await Task.Delay(1000); // 避免请求过快
+                }
+                catch (Exception ex)
+                {
+                    Logger.Debug("处理群组链接失败 {Link}: {Error}", link, ex.Message);
+                }
             }
-            catch (Exception ex)
-            {
-                Logger.Debug("加入群组失败 {Link}: {Error}", link, ex.Message);
-            }
+            
+            Logger.Information("✅ 成功处理 {Success}/{Total} 个白名单群组", successCount, whitelistLinks.Count);
         }
 
         // 筛选群组并同步到服务器
         var targetGroups = new List<GroupSyncDto>();
-        var whitelistGroupIds = new HashSet<long>();
         
         foreach (var (id, chat) in dialogs.chats)
         {
@@ -229,43 +320,26 @@ public class TelegramCollector : BackgroundService
 
             if (title != null)
             {
-                // 如果没有白名单文件，监控所有包含"公群"或"扫雷"的群组
                 bool shouldMonitor = false;
                 
-                if (!whitelistLinks.Any())
+                // 如果有白名单，只监控白名单中的群组
+                if (joinedGroupIds.Any())
                 {
-                    shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
+                    shouldMonitor = joinedGroupIds.Contains(groupId);
                 }
                 else
                 {
-                    // 有白名单文件，只监控白名单中的群组
-                    // 通过群链接匹配（如果有 username）
-                    if (!string.IsNullOrEmpty(username))
-                    {
-                        var possibleLinks = new[]
-                        {
-                            $"https://t.me/{username}",
-                            $"https://t.me/+{username}"
-                        };
-                        
-                        shouldMonitor = possibleLinks.Any(link => whitelistLinks.Contains(link));
-                    }
-                    
-                    // 如果没有 username，通过群名匹配（兜底方案）
-                    if (!shouldMonitor)
-                    {
-                        shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
-                    }
+                    // 没有白名单，监控所有包含"公群"或"扫雷"的群组（降级方案）
+                    shouldMonitor = title.Contains("公群") || title.Contains("扫雷");
                 }
                 
                 if (shouldMonitor)
                 {
-                    Logger.Information("✅ 发现目标群组: {Title} (ID: {Id})", title, groupId);
+                    Logger.Information("✅ 监控群组: {Title} (ID: {Id})", title, groupId);
                     targetGroups.Add(new GroupSyncDto { GroupId = groupId, Title = title });
                     
                     // 添加到监控列表
                     _monitorGroups[groupId] = title;
-                    whitelistGroupIds.Add(groupId);
                 }
             }
         }
