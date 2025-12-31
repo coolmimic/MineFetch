@@ -290,43 +290,21 @@ public class TelegramBotService
                 }
                 else // Dragon
                 {
-                    // 花龙只有一种，且只有连开，直接跳到选期数
-                    // 模拟选择了 Dragon 和 Consecutive
-                    data = "step2_Dragon_Consecutive"; 
-                    goto Step2_Jump; 
+                    // 花龙可以直接跳到选期数
+                    data = "step1_Dragon"; 
+                    goto Step1_Jump;
                 }
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
                     text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: cancellationToken);
             }
-            // 步骤 1: 选择玩法 -> 进入步骤 2 (选择规则类型)
-            else if (data.StartsWith("step1_"))
+            
+            Step1_Jump:
+            // 步骤 1: 选择玩法 -> 直接进入 (选择期数) [跳过选规则类型，默认连开]
+            if (data.StartsWith("step1_"))
             {
                 var betType = data.Split('_')[1];
-                var keyboard = new InlineKeyboardMarkup(new[]
-                {
-                    new[]
-                    {
-                        InlineKeyboardButton.WithCallbackData("🔥 连开", $"step2_{betType}_Consecutive"),
-                        InlineKeyboardButton.WithCallbackData("❄️ 遗漏", $"step2_{betType}_Missing"),
-                    },
-                    new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
-                });
-
-                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    $"已选择：{GetBetTypeName(betType)}\n\n📋 *第二步：请选择规则类型*",
-                    parseMode: ParseMode.Markdown,
-                    replyMarkup: keyboard,
-                    cancellationToken: cancellationToken);
-            }
-            
-            Step2_Jump:
-            // 步骤 2: 选择规则类型 -> 进入步骤 3 (选择期数)
-            if (data.StartsWith("step2_"))
-            {
-                var parts = data.Split('_');
-                var betType = parts[1];
-                var ruleType = parts[2];
+                var ruleType = "Consecutive"; // 默认规则类型：连开
                 var prefix = $"step3_{betType}_{ruleType}_";
 
                 var keyboard = new InlineKeyboardMarkup(new[]
@@ -338,7 +316,7 @@ public class TelegramBotService
                 });
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    $"已选择：{GetBetTypeName(betType)} -> {GetRuleTypeName(ruleType)}\n\n⏱️ *第三步：请选择触发期数*",
+                    $"已选择：{GetBetTypeName(betType)}\n\n⏱️ *请选择触发期数 (默认连开)*",
                     parseMode: ParseMode.Markdown,
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
@@ -387,11 +365,11 @@ public class TelegramBotService
     {
         var betType = Enum.Parse<BetType>(betTypeStr);
         var ruleType = Enum.Parse<RuleType>(ruleTypeStr);
-        long groupId = 0; // 全局规则
+        long? groupId = null; // 全局规则
 
         // 检查是否已存在
         var exists = await _dbContext.UserSettings
-            .AnyAsync(s => s.UserId == userId && s.GroupId == groupId && 
+            .AnyAsync(s => s.UserId == userId && (s.GroupId == groupId || s.GroupId == 0) && 
                            s.RuleType == ruleType && s.BetType == betType && s.Threshold == threshold, 
                       cancellationToken);
 

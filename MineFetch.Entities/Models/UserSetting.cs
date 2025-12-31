@@ -18,9 +18,9 @@ public class UserSetting
     public long UserId { get; set; }
 
     /// <summary>
-    /// 监控的群组 ID
+    /// 监控的群组 ID (Null 表示全局规则)
     /// </summary>
-    public long GroupId { get; set; }
+    public long? GroupId { get; set; }
 
     /// <summary>
     /// 规则类型（遗漏/连开）

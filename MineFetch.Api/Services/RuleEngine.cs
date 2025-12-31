@@ -47,7 +47,7 @@ public class RuleEngine
         var settings = await _dbContext.UserSettings
             .Include(s => s.User)
             .Include(s => s.Group)
-            .Where(s => (s.GroupId == result.GroupId || s.GroupId == 0) && s.IsEnabled)
+            .Where(s => (s.GroupId == result.GroupId || s.GroupId == null) && s.IsEnabled)
             .ToListAsync(cancellationToken);
 
         if (!settings.Any())
