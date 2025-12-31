@@ -287,14 +287,11 @@ public class TelegramBotService
                 await HandleHelpAsync(chatId, cancellationToken);
                 await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
             }
-            // 步骤 1: 选择玩法组 -> 直接进入 (选择期数)
+            // 步骤 1: 选择玩法组 -> 进入规则类型选择
             else if (data.StartsWith("cat_"))
             {
                 var category = data.Split('_')[1];
-                var ruleType = "Consecutive"; // 默认规则类型：连开
-                var prefix = $"step3_{category}_{ruleType}_";
 
-                // 根据不同分类显示不同的标题，虽然期数选择是一样的
                 string title = category switch
                 {
                     "Basic" => "🔴 大小单双玩法",
@@ -305,14 +302,52 @@ public class TelegramBotService
 
                 var keyboard = new InlineKeyboardMarkup(new[]
                 {
-                    new[] { InlineKeyboardButton.WithCallbackData("3 期", prefix + "3"), InlineKeyboardButton.WithCallbackData("4 期", prefix + "4"), InlineKeyboardButton.WithCallbackData("5 期", prefix + "5") },
-                    new[] { InlineKeyboardButton.WithCallbackData("6 期", prefix + "6"), InlineKeyboardButton.WithCallbackData("7 期", prefix + "7"), InlineKeyboardButton.WithCallbackData("8 期", prefix + "8") },
-                    new[] { InlineKeyboardButton.WithCallbackData("10 期", prefix + "10"), InlineKeyboardButton.WithCallbackData("12 期", prefix + "12"), InlineKeyboardButton.WithCallbackData("15 期", prefix + "15") },
-                    new[] { InlineKeyboardButton.WithCallbackData("✏️ 自定义", prefix + "custom"), InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
+                    new[] { InlineKeyboardButton.WithCallbackData("🔁 连开", $"step2_{category}_Consecutive") },
+                    new[] { InlineKeyboardButton.WithCallbackData("💤 遗漏", $"step2_{category}_Missing") },
+                    new[] { InlineKeyboardButton.WithCallbackData("🔙 返回", "cmd_add") }
                 });
 
                 await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    $"已选择：{title}\n\n⏱️ *请选择触发期数*",
+                    $"已选择：{title}\n\n📊 *请选择规则类型*",
+                    parseMode: ParseMode.Markdown,
+                    replyMarkup: keyboard,
+                    cancellationToken: cancellationToken);
+                    
+                await _botClient.AnswerCallbackQuery(callbackQuery.Id, cancellationToken: cancellationToken);
+            }
+            // 步骤 2: 选择规则类型 -> 进入期数选择
+            else if (data.StartsWith("step2_"))
+            {
+                var parts = data.Split('_');
+                var category = parts[1];
+                var ruleType = parts[2];
+                var prefix = $"step3_{category}_{ruleType}_";
+
+                string categoryName = category switch
+                {
+                    "Basic" => "大小单双",
+                    "Combo" => "组合",
+                    "Dragon" => "花龙",
+                    _ => category
+                };
+
+                string ruleTypeName = ruleType switch
+                {
+                    "Consecutive" => "连开",
+                    "Missing" => "遗漏",
+                    _ => ruleType
+                };
+
+                var keyboard = new InlineKeyboardMarkup(new[]
+                {
+                    new[] { InlineKeyboardButton.WithCallbackData("3 期", prefix + "3"), InlineKeyboardButton.WithCallbackData("4 期", prefix + "4"), InlineKeyboardButton.WithCallbackData("5 期", prefix + "5") },
+                    new[] { InlineKeyboardButton.WithCallbackData("6 期", prefix + "6"), InlineKeyboardButton.WithCallbackData("7 期", prefix + "7"), InlineKeyboardButton.WithCallbackData("8 期", prefix + "8") },
+                    new[] { InlineKeyboardButton.WithCallbackData("10 期", prefix + "10"), InlineKeyboardButton.WithCallbackData("12 期", prefix + "12"), InlineKeyboardButton.WithCallbackData("15 期", prefix + "15") },
+                    new[] { InlineKeyboardButton.WithCallbackData("✏️ 自定义", prefix + "custom"), InlineKeyboardButton.WithCallbackData("🔙 返回", $"cat_{category}") }
+                });
+
+                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
+                    $"玩法：{categoryName}\n规则：{ruleTypeName}\n\n⏱️ *请选择触发期数*",
                     parseMode: ParseMode.Markdown,
                     replyMarkup: keyboard,
                     cancellationToken: cancellationToken);
