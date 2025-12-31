@@ -75,6 +75,11 @@ app.UseSwagger();
 app.UseSwaggerUI();
 
 app.UseSerilogRequestLogging();
+
+// 启用静态文件服务
+app.UseDefaultFiles(); // 自动使用 index.html
+app.UseStaticFiles();
+
 app.MapControllers();
 
 // 设置 Webhook（如果配置了 WebhookUrl）
