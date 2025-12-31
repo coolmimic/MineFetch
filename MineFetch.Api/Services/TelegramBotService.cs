@@ -36,7 +36,10 @@ public class TelegramBotService
     {
         var commands = new[]
         {
-            new BotCommand { Command = "start", Description = "云顶互娱 - 扫雷长龙监控" }
+            new BotCommand { Command = "start", Description = "🎲 扫雷长龙监控" },
+            new BotCommand { Command = "threshold", Description = "⚙️ 设置长龙阈值" },
+            new BotCommand { Command = "on", Description = "▶️ 开始播报" },
+            new BotCommand { Command = "off", Description = "⏸️ 停止播报" }
         };
 
         await _botClient.SetMyCommands(commands, cancellationToken: cancellationToken);
@@ -80,6 +83,18 @@ public class TelegramBotService
         if (text == "/start" || text == "🏠 主页")
         {
             await ShowMainMenu(chatId, userId, cancellationToken);
+        }
+        else if (text == "/threshold")
+        {
+            await ShowThresholdSettings(chatId, userId, cancellationToken);
+        }
+        else if (text == "/on")
+        {
+            await ToggleEnabled(chatId, userId, true, cancellationToken);
+        }
+        else if (text == "/off")
+        {
+            await ToggleEnabled(chatId, userId, false, cancellationToken);
         }
         // 检查是否是数字（用于设置阈值）
         else if (int.TryParse(text, out var threshold) && threshold >= 3 && threshold <= 50)
@@ -165,6 +180,17 @@ public class TelegramBotService
         await _botClient.SendMessage(chatId,
             $"✅ 阈值已更新为 {threshold} 期",
             cancellationToken: cancellationToken);
+    }
+
+    private async Task ToggleEnabled(long chatId, long userId, bool enabled, CancellationToken cancellationToken)
+    {
+        var setting = await GetOrCreateUserSetting(userId, cancellationToken);
+        setting.IsEnabled = enabled;
+        setting.UpdatedAt = DateTime.UtcNow;
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var statusText = enabled ? "✅ 播报已开启" : "⏸️ 播报已停止";
+        await _botClient.SendMessage(chatId, statusText, cancellationToken: cancellationToken);
     }
 
     private async Task<UserSetting> GetOrCreateUserSetting(long userId, CancellationToken cancellationToken)
