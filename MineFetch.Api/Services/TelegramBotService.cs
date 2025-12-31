@@ -86,6 +86,11 @@ public class TelegramBotService
         {
             await UpdateThreshold(chatId, userId, threshold, cancellationToken);
         }
+        // 未识别的输入，显示主菜单
+        else
+        {
+            await ShowMainMenu(chatId, userId, cancellationToken);
+        }
     }
 
     private async Task ShowMainMenu(long chatId, long userId, CancellationToken cancellationToken)
