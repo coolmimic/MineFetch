@@ -10,9 +10,12 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        // 获取exe所在目录作为基路径（而非当前工作目录）
+        var exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
+        
         // 配置 Serilog
         var configuration = new ConfigurationBuilder()
-            .SetBasePath(Directory.GetCurrentDirectory())
+            .SetBasePath(exeDirectory)
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .AddJsonFile($"appsettings.{Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "Production"}.json", optional: true)
             .AddEnvironmentVariables()

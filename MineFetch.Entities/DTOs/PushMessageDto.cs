@@ -88,7 +88,12 @@ public class PushMessageDto
     /// </summary>
     public string ToMessageText()
     {
-        var timeStr = CollectedAt.ToLocalTime().ToString("yyyy/MM/dd HH:mm:ss");
+        // 转换为中国时区（UTC+8）
+        var chinaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("China Standard Time");
+        var chinaTime = TimeZoneInfo.ConvertTimeFromUtc(
+            CollectedAt.Kind == DateTimeKind.Utc ? CollectedAt : CollectedAt.ToUniversalTime(),
+            chinaTimeZone);
+        var timeStr = chinaTime.ToString("yyyy/MM/dd HH:mm:ss");
         
         // 确定类型描述
         string typeDesc = "长龙";
