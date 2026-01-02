@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MineFetch.Collector.Services;
 using Serilog;
+using System.Text;
 
 namespace MineFetch.Collector;
 
@@ -10,6 +11,10 @@ class Program
 {
     static async Task Main(string[] args)
     {
+        // 设置控制台编码为 UTF-8，解决中文乱码问题
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+        
         // 获取exe所在目录作为基路径（而非当前工作目录）
         var exeDirectory = AppDomain.CurrentDomain.BaseDirectory;
         
