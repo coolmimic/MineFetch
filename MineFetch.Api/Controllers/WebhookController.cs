@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using MineFetch.Api.Services;
-using System.Text.Json;
+using Newtonsoft.Json;
 using Telegram.Bot.Types;
 
 namespace MineFetch.Api.Controllers;
@@ -33,7 +33,7 @@ public class WebhookController : ControllerBase
             using var reader = new StreamReader(Request.Body);
             var rawJson = await reader.ReadToEndAsync(cancellationToken);
             
-            _logger.LogInformation("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
+            _logger.LogDebug("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
             
             if (string.IsNullOrEmpty(rawJson))
             {
@@ -41,11 +41,8 @@ public class WebhookController : ControllerBase
                 return Ok();
             }
             
-            // 手动反序列化
-            var update = JsonSerializer.Deserialize<Update>(rawJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            // 使用 Newtonsoft.Json 反序列化（Telegram.Bot 库使用此格式）
+            var update = JsonConvert.DeserializeObject<Update>(rawJson);
             
             if (update == null)
             {
@@ -53,13 +50,17 @@ public class WebhookController : ControllerBase
                 return Ok();
             }
             
-            _logger.LogInformation("Webhook 更新解析成功: UpdateId={UpdateId}, Type={Type}", 
-                update.Id, 
-                update.Type);
+            // 详细日志
+            if (update.Message != null)
+            {
+                _logger.LogInformation("收到消息: ChatType={ChatType}, ChatId={ChatId}, Text={Text}",
+                    update.Message.Chat.Type,
+                    update.Message.Chat.Id,
+                    update.Message.Text ?? "(无文本)");
+            }
             
             await _botService.HandleUpdateAsync(update, cancellationToken);
             
-            _logger.LogDebug("Webhook 更新处理完成: {UpdateId}", update.Id);
             return Ok();
         }
         catch (Exception ex)
