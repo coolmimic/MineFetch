@@ -44,7 +44,7 @@ class Program
                 .ConfigureServices((context, services) =>
                 {
                     // 注册服务
-                    services.AddSingleton<MessageParser>();
+                    services.AddSingleton<CollectorMessageParser>();
                     services.AddSingleton<BackendClient>();
                     services.AddHostedService<TelegramCollector>();
                 })

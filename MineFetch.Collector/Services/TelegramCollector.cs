@@ -15,7 +15,7 @@ public class TelegramCollector : BackgroundService
     private static readonly ILogger Logger = Log.ForContext<TelegramCollector>();
     
     private readonly IConfiguration _configuration;
-    private readonly MessageParser _parser;
+    private readonly CollectorMessageParser _parser;
     private readonly BackendClient _backendClient;
     
     private Client? _client;
@@ -25,7 +25,7 @@ public class TelegramCollector : BackgroundService
 
     public TelegramCollector(
         IConfiguration configuration,
-        MessageParser parser,
+        CollectorMessageParser parser,
         BackendClient backendClient)
     {
         _configuration = configuration;

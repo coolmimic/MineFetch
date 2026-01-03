@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using MineFetch.Api.Data;
+using MineFetch.Entities.DTOs;
 using MineFetch.Entities.Enums;
 using MineFetch.Entities.Models;
+using MineFetch.Entities.Services;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -11,22 +13,31 @@ using User = MineFetch.Entities.Models.User;
 namespace MineFetch.Api.Services;
 
 /// <summary>
-/// Telegram Bot 服务 - 极简三按钮界面
+/// Telegram Bot 服务 - 极简三按钮界面 + 群消息采集
 /// </summary>
 public class TelegramBotService
 {
     private readonly ILogger<TelegramBotService> _logger;
     private readonly ITelegramBotClient _botClient;
     private readonly AppDbContext _dbContext;
+    private readonly LotteryService _lotteryService;
+    private readonly MessageParser _messageParser;
+    
+    // 防止重复处理的缓存
+    private static readonly HashSet<string> _processedPeriods = new();
+    private static readonly object _lockObj = new();
 
     public TelegramBotService(
         ILogger<TelegramBotService> logger,
         ITelegramBotClient botClient,
-        AppDbContext dbContext)
+        AppDbContext dbContext,
+        LotteryService lotteryService)
     {
         _logger = logger;
         _botClient = botClient;
         _dbContext = dbContext;
+        _lotteryService = lotteryService;
+        _messageParser = new MessageParser();
     }
 
     /// <summary>
@@ -67,13 +78,21 @@ public class TelegramBotService
 
     private async Task HandleMessageAsync(Message message, CancellationToken cancellationToken)
     {
+        // 处理群消息采集
+        if (message.Chat.Type == ChatType.Group || message.Chat.Type == ChatType.Supergroup)
+        {
+            await ProcessGroupMessageAsync(message, cancellationToken);
+            return;
+        }
+
+        // 以下是私聊消息处理
         if (message.Text is not { } text)
             return;
 
         var chatId = message.Chat.Id;
         var userId = message.From?.Id ?? 0;
 
-        _logger.LogInformation("收到消息: ChatId={ChatId}, UserId={UserId}, Text={Text}", 
+        _logger.LogDebug("收到私聊消息: ChatId={ChatId}, UserId={UserId}, Text={Text}", 
             chatId, userId, text);
 
         // 确保用户已注册
@@ -106,6 +125,50 @@ public class TelegramBotService
         {
             await ShowMainMenu(chatId, userId, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// 处理群消息，尝试采集开奖数据
+    /// </summary>
+    private async Task ProcessGroupMessageAsync(Message message, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(message.Text))
+            return;
+
+        var groupId = message.Chat.Id;
+        var groupName = message.Chat.Title ?? $"群组 {groupId}";
+        var messageId = message.MessageId;
+
+        // 尝试解析开奖信息
+        var result = _messageParser.TryParse(message.Text, groupId, groupName, messageId);
+        if (result == null)
+            return;
+
+        // 检查是否已处理过
+        lock (_lockObj)
+        {
+            if (_processedPeriods.Contains(result.PeriodId))
+            {
+                _logger.LogDebug("期号已处理过，跳过: {PeriodId}", result.PeriodId);
+                return;
+            }
+            _processedPeriods.Add(result.PeriodId);
+
+            // 限制缓存大小
+            if (_processedPeriods.Count > 10000)
+            {
+                _processedPeriods.Clear();
+                _logger.LogInformation("已清理期号缓存");
+            }
+        }
+
+        // 简化群名显示
+        var shortName = MessageParser.GetShortGroupName(groupName);
+        _logger.LogInformation("✅ [Bot采集] [{GroupName}] 期号={PeriodId}, 骰子={DiceNumber}", 
+            shortName, result.PeriodId, result.DiceNumber);
+
+        // 保存到数据库并触发规则检查
+        await _lotteryService.ReportAsync(result, cancellationToken);
     }
 
     private async Task ShowMainMenu(long chatId, long userId, CancellationToken cancellationToken)
