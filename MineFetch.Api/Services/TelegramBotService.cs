@@ -132,7 +132,9 @@ public class TelegramBotService
     /// </summary>
     private async Task ProcessGroupMessageAsync(Message message, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrEmpty(message.Text))
+        // 同时支持纯文本消息(Text)和带媒体消息的文字(Caption)
+        var messageText = message.Text ?? message.Caption;
+        if (string.IsNullOrEmpty(messageText))
             return;
 
         var groupId = message.Chat.Id;
@@ -140,7 +142,7 @@ public class TelegramBotService
         var messageId = message.MessageId;
 
         // 尝试解析开奖信息
-        var result = _messageParser.TryParse(message.Text, groupId, groupName, messageId);
+        var result = _messageParser.TryParse(messageText, groupId, groupName, messageId);
         if (result == null)
             return;
 

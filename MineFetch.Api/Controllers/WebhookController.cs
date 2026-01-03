@@ -65,7 +65,7 @@ public class WebhookController : ControllerBase
             using var reader = new StreamReader(Request.Body);
             var rawJson = await reader.ReadToEndAsync(cancellationToken);
             
-            _logger.LogDebug("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
+            _logger.LogInformation("收到 Webhook 请求，原始内容: {RawJson}", rawJson);
             
             if (string.IsNullOrEmpty(rawJson))
             {
