@@ -61,12 +61,17 @@ public class TelegramBotService
     {
         try
         {
+            _logger.LogDebug("处理更新: Message={HasMessage}, CallbackQuery={HasCallback}",
+                update.Message != null, update.CallbackQuery != null);
+            
             if (update.Message is { } message)
             {
                 await HandleMessageAsync(message, cancellationToken);
             }
             else if (update.CallbackQuery is { } callbackQuery)
             {
+                _logger.LogInformation("收到回调: Data={Data}, ChatId={ChatId}",
+                    callbackQuery.Data, callbackQuery.Message?.Chat.Id);
                 await HandleCallbackQueryAsync(callbackQuery, cancellationToken);
             }
         }
