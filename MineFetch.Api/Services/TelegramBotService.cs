@@ -321,8 +321,19 @@ public class TelegramBotService
                     setting.UpdatedAt = DateTime.UtcNow;
                     await _dbContext.SaveChangesAsync(cancellationToken);
 
-                    // 删除原消息并返回主菜单
-                    await _botClient.DeleteMessage(chatId, callbackQuery.Message!.MessageId, cancellationToken);
+                    // 删除原消息并返回主菜单（如果MessageId有效）
+                    var messageId = callbackQuery.Message?.MessageId ?? 0;
+                    if (messageId > 0)
+                    {
+                        try
+                        {
+                            await _botClient.DeleteMessage(chatId, messageId, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "删除消息失败，继续执行");
+                        }
+                    }
                     await ShowMainMenu(chatId, userId, cancellationToken);
                         
                     await _botClient.AnswerCallbackQuery(callbackQuery.Id, $"✅ 阈值已设置为 {threshold} 期", cancellationToken: cancellationToken);
@@ -336,17 +347,21 @@ public class TelegramBotService
                 setting.UpdatedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
-                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    $"""
-                    ✅ 播报已开启
+                var msgId = callbackQuery.Message?.MessageId ?? 0;
+                if (msgId > 0)
+                {
+                    await _botClient.EditMessageText(chatId, msgId,
+                        $"""
+                        ✅ 播报已开启
 
-                    当前阈值：{setting.Threshold} 期
-                    监控范围：所有群组
-                    监控玩法：所有长龙
+                        当前阈值：{setting.Threshold} 期
+                        监控范围：所有群组
+                        监控玩法：所有长龙
 
-                    开始监控中...
-                    """,
-                    cancellationToken: cancellationToken);
+                        开始监控中...
+                        """,
+                        cancellationToken: cancellationToken);
+                }
 
                 await _botClient.AnswerCallbackQuery(callbackQuery.Id, "✅ 已开启播报", cancellationToken: cancellationToken);
             }
@@ -358,9 +373,13 @@ public class TelegramBotService
                 setting.UpdatedAt = DateTime.UtcNow;
                 await _dbContext.SaveChangesAsync(cancellationToken);
 
-                await _botClient.EditMessageText(chatId, callbackQuery.Message!.MessageId,
-                    "⏸️ 播报已停止\n\n点击 /start 重新开始",
-                    cancellationToken: cancellationToken);
+                var msgId = callbackQuery.Message?.MessageId ?? 0;
+                if (msgId > 0)
+                {
+                    await _botClient.EditMessageText(chatId, msgId,
+                        "⏸️ 播报已停止\n\n点击 /start 重新开始",
+                        cancellationToken: cancellationToken);
+                }
 
                 await _botClient.AnswerCallbackQuery(callbackQuery.Id, "⏸️ 已停止播报", cancellationToken: cancellationToken);
             }
