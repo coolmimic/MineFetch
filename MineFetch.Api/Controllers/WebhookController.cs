@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using MineFetch.Api.Services;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
+using Newtonsoft.Json.Serialization;
 using Telegram.Bot.Types;
 
 namespace MineFetch.Api.Controllers;
@@ -40,9 +41,13 @@ public class WebhookController : ControllerBase
     private readonly ILogger<WebhookController> _logger;
     private readonly TelegramBotService _botService;
     
-    // Telegram Bot 专用的 JSON 序列化设置
+    // Telegram Bot 专用的 JSON 序列化设置（支持 snake_case）
     private static readonly JsonSerializerSettings TelegramJsonSettings = new()
     {
+        ContractResolver = new DefaultContractResolver
+        {
+            NamingStrategy = new SnakeCaseNamingStrategy()
+        },
         DateTimeZoneHandling = DateTimeZoneHandling.Utc,
         Converters = { new UnixTimestampConverter() }
     };
